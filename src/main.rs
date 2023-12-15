@@ -111,6 +111,20 @@ fn object_file_name(object_id: &ObjectID) -> PathBuf {
     file_name
 }
 
+// serialize entries should be called with sorted entries
+fn serialize_entries(entries: &[Object]) -> io::Result<Vec<u8>> {
+    // Note: should decrease allocation?
+    let mut buf = Vec::new();
+
+    for entry in entries {
+        buf.extend_from_slice(format!("{}\t{}\t", entry.object_type, entry.object_id).as_bytes());
+        buf.extend_from_slice(entry.file_name.to_str().unwrap().as_bytes());
+        buf.push(b'\n');
+    }
+
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,15 +197,27 @@ fn walk_dir(path: &Path) -> io::Result<Vec<Object>> {
             continue;
         }
 
+        let file_name = PathBuf::from(path.file_name().unwrap());
         if path.is_dir() {
-            // TODO caluclate object id to tree
-            objects.extend(walk_dir(&path)?);
+            let object_type = ObjectType::Tree;
+
+            let entries = walk_dir(&path)?;
+            let tree_contents = serialize_entries(&entries)?;
+            let object_id = ObjectID::from_contents(&tree_contents);
+
+            log::info!("{}\t{}\t{}", object_type, object_id, file_name.display());
+            objects.push(Object {
+                object_type,
+                object_id,
+                file_name,
+            });
         } else {
-            let file_name = PathBuf::from(path.file_name().unwrap());
+            let object_type = ObjectType::File;
             let object_id = ObjectID::from_contents(&fs::read(path)?);
 
+            log::info!("{}\t{}\t{}", object_type, object_id, file_name.display());
             objects.push(Object {
-                object_type: ObjectType::File,
+                object_type,
                 object_id,
                 file_name,
             });
@@ -202,6 +228,8 @@ fn walk_dir(path: &Path) -> io::Result<Vec<Object>> {
 }
 
 fn main() -> io::Result<()> {
+    env_logger::init();
+
     let cwd = env::current_dir()?;
     let objects = walk_dir(&cwd)?;
     for object in objects {
