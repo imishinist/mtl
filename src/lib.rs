@@ -7,7 +7,7 @@ use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ObjectType {
     Tree,
     File,
