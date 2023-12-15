@@ -1,4 +1,7 @@
-use crate::{write_head, write_tree_contents, Object, ObjectID, ObjectType, MTL_DIR};
+use crate::{
+    read_tree_contents, ref_head_name, write_head, write_tree_contents, Object, ObjectID,
+    ObjectType, MTL_DIR,
+};
 use clap::{Args, Subcommand};
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
@@ -76,5 +79,64 @@ impl LocalCommand {
         match self {
             LocalCommand::Build(cmd) => cmd.run(),
         }
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct PrintTreeCommand {
+    #[clap(long, short)]
+    dir: Option<String>,
+
+    #[clap(long, short)]
+    object_id: Option<String>,
+}
+
+impl PrintTreeCommand {
+    pub fn run(&self) -> io::Result<()> {
+        let dir = self
+            .dir
+            .as_ref()
+            .map(|s| PathBuf::from(s))
+            .unwrap_or_else(|| env::current_dir().unwrap());
+        env::set_current_dir(&dir)?;
+
+        let object_id = self
+            .object_id
+            .as_ref()
+            .map(|s| ObjectID::from_hex(s))
+            .unwrap_or_else(|| {
+                let head = fs::read_to_string(ref_head_name())?;
+                Ok(ObjectID::from_hex(&head)?)
+            })?;
+
+        println!("tree {}\t<root>", object_id);
+        Self::print_tree("", &object_id)?;
+        Ok(())
+    }
+
+    fn print_tree<P: AsRef<Path>>(parent: P, object_id: &ObjectID) -> io::Result<()> {
+        let parent = parent.as_ref().to_path_buf();
+        let objects = read_tree_contents(object_id)?;
+        for object in &objects {
+            match object.object_type {
+                ObjectType::Tree => {
+                    println!(
+                        "tree {}\t{}/",
+                        object.object_id,
+                        parent.join(&object.file_name).display()
+                    );
+                    Self::print_tree(&parent.join(&object.file_name), &object.object_id)?;
+                }
+                ObjectType::File => {
+                    println!(
+                        "file {}\t{}",
+                        object.object_id,
+                        parent.join(&object.file_name).display()
+                    )
+                }
+            }
+        }
+
+        Ok(())
     }
 }

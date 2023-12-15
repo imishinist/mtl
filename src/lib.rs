@@ -44,7 +44,8 @@ impl ObjectID {
         ObjectID { inner }
     }
 
-    pub fn from_hex(hex: &str) -> io::Result<Self> {
+    pub fn from_hex<S: AsRef<str>>(hex: S) -> io::Result<Self> {
+        let hex = hex.as_ref();
         if hex.len() != 32 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -76,6 +77,14 @@ impl fmt::Display for ObjectID {
             write!(f, "{:02x}", byte)?;
         }
         Ok(())
+    }
+}
+
+impl FromStr for ObjectID {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ObjectID::from_hex(s).map_err(|e| e.to_string())
     }
 }
 
@@ -153,6 +162,27 @@ fn write_head(object_id: &ObjectID) -> io::Result<()> {
     fs::write(head_name, object_id.to_string())?;
 
     Ok(())
+}
+
+fn read_tree_contents(object_id: &ObjectID) -> io::Result<Vec<Object>> {
+    let file_name = object_file_name(object_id);
+    let tree_contents = fs::read_to_string(file_name)?;
+
+    let mut objects = Vec::new();
+    for line in tree_contents.lines() {
+        let mut parts = line.split('\t');
+        let object_type = parts.next().unwrap().parse::<ObjectType>().unwrap();
+        let object_id = parts.next().unwrap().parse::<ObjectID>().unwrap();
+        let file_name = PathBuf::from(parts.next().unwrap());
+
+        objects.push(Object {
+            object_type,
+            object_id,
+            file_name,
+        });
+    }
+
+    Ok(objects)
 }
 
 #[cfg(test)]

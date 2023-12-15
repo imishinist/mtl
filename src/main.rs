@@ -2,7 +2,7 @@ use std::io;
 
 use clap::{Parser, Subcommand};
 
-use mtl::LocalCommand;
+use mtl::{LocalCommand, PrintTreeCommand};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
@@ -16,6 +16,7 @@ struct MTLCommands {
 enum Commands {
     #[command(subcommand)]
     Local(LocalCommand),
+    PrintTree(PrintTreeCommand),
 }
 
 fn main() -> io::Result<()> {
@@ -24,6 +25,7 @@ fn main() -> io::Result<()> {
     let mtl = MTLCommands::parse();
     match &mtl.commands {
         Commands::Local(local) => local.run()?,
+        Commands::PrintTree(print_tree) => print_tree.run()?,
     }
 
     Ok(())
