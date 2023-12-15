@@ -125,6 +125,19 @@ fn serialize_entries(entries: &[Object]) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
+fn write_tree_contents(entries: &[Object]) -> io::Result<ObjectID> {
+    let tree_contents = serialize_entries(&entries)?;
+    let object_id = ObjectID::from_contents(&tree_contents);
+
+    let dir_name = object_dir_name(&object_id);
+    let file_name = object_file_name(&object_id);
+
+    fs::create_dir_all(&dir_name)?;
+    fs::write(&file_name, tree_contents)?;
+
+    Ok(object_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,10 +213,8 @@ fn walk_dir(path: &Path) -> io::Result<Vec<Object>> {
         let file_name = PathBuf::from(path.file_name().unwrap());
         if path.is_dir() {
             let object_type = ObjectType::Tree;
-
             let entries = walk_dir(&path)?;
-            let tree_contents = serialize_entries(&entries)?;
-            let object_id = ObjectID::from_contents(&tree_contents);
+            let object_id = write_tree_contents(&entries)?;
 
             log::info!("{}\t{}\t{}", object_type, object_id, file_name.display());
             objects.push(Object {
