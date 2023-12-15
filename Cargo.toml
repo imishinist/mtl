@@ -13,4 +13,5 @@ flate2 = { version = "1.0.28", features = ["zlib"] }
 log = "0.4.20"
 md5 = "0.7.0"
 rand = "0.8.5"
+sha1 = "0.10.6"
 uuid = { version = "1.6.1", features = ["v4"] }

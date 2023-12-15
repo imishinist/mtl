@@ -249,6 +249,7 @@ fn walk_dir(path: &Path) -> io::Result<Vec<Object>> {
             });
         }
     }
+    objects.sort_by(|a, b| a.file_name.cmp(&b.file_name));
 
     Ok(objects)
 }
