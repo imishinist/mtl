@@ -46,7 +46,11 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<String>>
 fn main() -> std::io::Result<()> {
     let dir = std::env::args().nth(1).unwrap();
     let nfile = std::env::args().nth(2).unwrap().parse::<usize>().unwrap();
-    let seed = std::env::args().nth(3).unwrap_or("1234".to_string()).parse::<u64>().unwrap();
+    let seed = std::env::args()
+        .nth(3)
+        .unwrap_or("1234".to_string())
+        .parse::<u64>()
+        .unwrap();
 
     let dir = std::path::Path::new(&dir);
     let lines = read_file("/usr/share/dict/words")?;
@@ -75,4 +79,3 @@ fn main() -> std::io::Result<()> {
     }
     Ok(())
 }
-
