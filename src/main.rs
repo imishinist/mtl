@@ -111,6 +111,14 @@ fn object_file_name(object_id: &ObjectID) -> PathBuf {
     file_name
 }
 
+fn ref_head_name() -> PathBuf {
+    let mut head_name = PathBuf::new();
+    head_name.push(MTL_DIR);
+    head_name.push("HEAD");
+
+    head_name
+}
+
 // serialize entries should be called with sorted entries
 fn serialize_entries(entries: &[Object]) -> io::Result<Vec<u8>> {
     // Note: should decrease allocation?
@@ -136,6 +144,13 @@ fn write_tree_contents(entries: &[Object]) -> io::Result<ObjectID> {
     fs::write(&file_name, tree_contents)?;
 
     Ok(object_id)
+}
+
+fn write_head(object_id: &ObjectID) -> io::Result<()> {
+    let head_name = ref_head_name();
+    fs::write(head_name, object_id.to_string())?;
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -242,14 +257,11 @@ fn main() -> io::Result<()> {
     env_logger::init();
 
     let cwd = env::current_dir()?;
-    let objects = walk_dir(&cwd)?;
-    for object in objects {
-        println!(
-            "{} {} {}",
-            object.object_type,
-            object.object_id,
-            object.file_name.display()
-        );
-    }
+
+    let entries = walk_dir(&cwd)?;
+    let object_id = write_tree_contents(&entries)?;
+    write_head(&object_id)?;
+
+    println!("HEAD: {}", object_id);
     Ok(())
 }
