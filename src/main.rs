@@ -22,6 +22,10 @@ enum Commands {
 fn main() -> io::Result<()> {
     env_logger::init();
 
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let mtl = MTLCommands::parse();
     match &mtl.commands {
         Commands::Local(local) => local.run()?,
