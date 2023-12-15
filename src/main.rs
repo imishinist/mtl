@@ -1,6 +1,11 @@
+use std::env;
 use std::fmt::{Display, Error, Formatter};
+use std::fs;
 use std::io;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+
+const MTL_DIR: &str = ".mtl";
 
 #[derive(Debug, PartialEq)]
 enum ObjectType {
@@ -74,6 +79,38 @@ impl Display for ObjectID {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct Object {
+    object_type: ObjectType,
+    object_id: ObjectID,
+
+    // only contains basename of file
+    file_name: PathBuf,
+}
+
+fn object_dir_name(object_id: &ObjectID) -> PathBuf {
+    let object_id = object_id.to_string();
+
+    let mut dir_name = PathBuf::new();
+    dir_name.push(MTL_DIR);
+    dir_name.push("objects");
+    dir_name.push(&object_id[0..2]);
+
+    dir_name
+}
+
+fn object_file_name(object_id: &ObjectID) -> PathBuf {
+    let object_id = object_id.to_string();
+
+    let mut file_name = PathBuf::new();
+    file_name.push(MTL_DIR);
+    file_name.push("objects");
+    file_name.push(&object_id[0..2]);
+    file_name.push(&object_id[2..]);
+
+    file_name
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +148,69 @@ mod tests {
             ObjectID::from_hex("5eb63bbbe01eeed093cb22bb8f5acdc3").unwrap()
         );
     }
+
+    #[test]
+    fn test_object_dir_name() {
+        assert_eq!(
+            object_dir_name(&ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap()),
+            Path::new(".mtl/objects/01")
+        );
+    }
+
+    #[test]
+    fn test_object_file_name() {
+        assert_eq!(
+            object_file_name(&ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap()),
+            Path::new(".mtl/objects/01/23456789abcdef0123456789abcdef")
+        );
+    }
 }
 
-fn main() {}
+fn filter(path: &Path) -> bool {
+    let path = path.to_str().unwrap();
+    !(path.contains(".git")
+        || path.contains(MTL_DIR)
+        || path.contains("target")
+        || path.contains(".idea"))
+}
+
+fn walk_dir(path: &Path) -> io::Result<Vec<Object>> {
+    let mut objects = Vec::new();
+
+    for entry in path.read_dir()? {
+        let path = entry?.path();
+        if !filter(&path) {
+            continue;
+        }
+
+        if path.is_dir() {
+            // TODO caluclate object id to tree
+            objects.extend(walk_dir(&path)?);
+        } else {
+            let file_name = PathBuf::from(path.file_name().unwrap());
+            let object_id = ObjectID::from_contents(&fs::read(path)?);
+
+            objects.push(Object {
+                object_type: ObjectType::File,
+                object_id,
+                file_name,
+            });
+        }
+    }
+
+    Ok(objects)
+}
+
+fn main() -> io::Result<()> {
+    let cwd = env::current_dir()?;
+    let objects = walk_dir(&cwd)?;
+    for object in objects {
+        println!(
+            "{} {} {}",
+            object.object_type,
+            object.object_id,
+            object.file_name.display()
+        );
+    }
+    Ok(())
+}
