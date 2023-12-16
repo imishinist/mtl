@@ -147,7 +147,13 @@ impl PrintTreeCommand {
                             parent.join(&object.file_name).display()
                         );
                     }
-                    Self::print_tree(&parent.join(&object.file_name), &object.object_id, object_type, depth + 1, max_depth)?;
+                    Self::print_tree(
+                        &parent.join(&object.file_name),
+                        &object.object_id,
+                        object_type,
+                        depth + 1,
+                        max_depth,
+                    )?;
                 }
                 ObjectType::File => {
                     if object_type.is_none() || object_type == Some(&ObjectType::File) {
