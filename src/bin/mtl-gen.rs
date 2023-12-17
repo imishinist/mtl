@@ -1,9 +1,12 @@
+use clap::Parser;
 use std::io::BufRead;
 use std::io::Write;
-use clap::Parser;
+use std::sync::atomic::AtomicUsize;
+use indicatif::{MultiProgress, ProgressBar};
 
 use rand::{Rng, SeedableRng};
 use sha1::Digest;
+use rayon::prelude::*;
 
 struct Hash {
     inner: [u8; 20],
@@ -58,33 +61,43 @@ struct Cli {
     prefix_byte: usize,
 }
 
-fn main() -> std::io::Result<()> {
+async fn async_main() -> std::io::Result<()> {
     let cli = Cli::parse();
 
     let dir = std::path::Path::new(&cli.dir);
     let lines = read_file("/usr/share/dict/words")?;
     let len = lines.len();
 
-    println!("seed: {}", cli.seed);
-    let mut rng = rand::rngs::StdRng::seed_from_u64(cli.seed);
-    for _i in 0..cli.nfile {
-        // generate random range
+    let pb = ProgressBar::new(cli.nfile as u64);
+    (0..cli.nfile).into_par_iter().for_each(|_i| {
+        pb.inc(1);
+
+        let mut rng = rand::thread_rng();
+
         let n1 = rng.gen_range(0..len);
         let n2 = rng.gen_range(n1..std::cmp::min(n1 + 10000, len));
 
         let lines = (&lines[n1..n2]).join("\n");
         let lines = lines.as_bytes();
-        let hash = hash_content(lines)?;
+        let hash = hash_content(lines).unwrap();
 
         let hash = hash.to_string();
 
         let (prefix, rest) = hash.split_at(cli.prefix_byte);
         let path = dir.join(prefix);
-        std::fs::create_dir_all(&path)?;
+        std::fs::create_dir_all(&path).unwrap();
 
         let path = path.join(rest);
-        let mut file = std::fs::File::create(path)?;
-        file.write_all(&lines)?;
-    }
+        let mut file = std::fs::File::create(path).unwrap();
+        file.write_all(&lines).unwrap();
+    });
+    pb.finish();
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    async_main().await?;
     Ok(())
 }
