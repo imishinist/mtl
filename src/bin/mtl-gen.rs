@@ -1,5 +1,6 @@
 use std::io::BufRead;
 use std::io::Write;
+use clap::Parser;
 
 use rand::{Rng, SeedableRng};
 use sha1::Digest;
@@ -43,22 +44,27 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<String>>
     Ok(lines)
 }
 
-fn main() -> std::io::Result<()> {
-    let dir = std::env::args().nth(1).unwrap();
-    let nfile = std::env::args().nth(2).unwrap().parse::<usize>().unwrap();
-    let seed = std::env::args()
-        .nth(3)
-        .unwrap_or("1234".to_string())
-        .parse::<u64>()
-        .unwrap();
+#[derive(Debug, Parser)]
+#[command(author, version, about, long_about=None)]
+#[command(propagate_version = true)]
+struct Cli {
+    dir: String,
+    nfile: usize,
 
-    let dir = std::path::Path::new(&dir);
+    #[clap(long, default_value = "1234")]
+    seed: u64,
+}
+
+fn main() -> std::io::Result<()> {
+    let cli = Cli::parse();
+
+    let dir = std::path::Path::new(&cli.dir);
     let lines = read_file("/usr/share/dict/words")?;
     let len = lines.len();
 
-    println!("seed: {}", seed);
-    let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-    for _i in 0..nfile {
+    println!("seed: {}", cli.seed);
+    let mut rng = rand::rngs::StdRng::seed_from_u64(cli.seed);
+    for _i in 0..cli.nfile {
         // generate random range
         let n1 = rng.gen_range(0..len);
         let n2 = rng.gen_range(n1..std::cmp::min(n1 + 10000, len));

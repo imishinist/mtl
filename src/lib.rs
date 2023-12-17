@@ -1,4 +1,6 @@
 pub mod commands;
+
+use std::cmp::Ordering;
 pub use commands::*;
 
 use std::fmt;
@@ -7,7 +9,14 @@ use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-#[derive(Debug, PartialEq, Clone)]
+#[cfg(feature="jemalloc")]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(feature="jemalloc")]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ObjectType {
     Tree,
     File,
@@ -34,7 +43,7 @@ impl FromStr for ObjectType {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ObjectID {
     inner: [u8; 16],
 }
@@ -88,13 +97,36 @@ impl FromStr for ObjectID {
     }
 }
 
-#[derive(Debug, PartialEq)]
-struct Object {
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Object {
     object_type: ObjectType,
     object_id: ObjectID,
 
     // only contains basename of file
     file_name: PathBuf,
+}
+
+impl Object {
+    pub fn new(object_type: ObjectType, object_id: ObjectID, file_name: PathBuf) -> Self {
+        Object {
+            object_type,
+            object_id,
+            file_name,
+        }
+    }
+}
+
+
+impl PartialOrd<Self> for Object {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        return self.file_name.partial_cmp(&other.file_name);
+    }
+}
+
+impl Ord for Object {
+    fn cmp(&self, other: &Self) -> Ordering {
+        return self.file_name.cmp(&other.file_name);
+    }
 }
 
 const MTL_DIR: &str = ".mtl";
@@ -144,7 +176,7 @@ fn serialize_entries(entries: &[Object]) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-fn write_tree_contents(entries: &[Object]) -> io::Result<ObjectID> {
+pub fn write_tree_contents(entries: &[Object]) -> io::Result<ObjectID> {
     let tree_contents = serialize_entries(&entries)?;
     let object_id = ObjectID::from_contents(&tree_contents);
 
@@ -237,6 +269,26 @@ mod tests {
         assert_eq!(
             object_file_name(&ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap()),
             Path::new(".mtl/objects/01/23456789abcdef0123456789abcdef")
+        );
+    }
+
+    #[test]
+    fn test_object_order() {
+        let object_id = ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap();
+        let mut objects = vec![
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("c")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("d")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("a")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("b")),
+        ];
+        let mut compare_target = objects.clone();
+
+        objects.sort();
+        compare_target.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+        assert_eq!(objects, compare_target);
+        assert_eq!(
+            vec![PathBuf::from("a"), PathBuf::from("b"), PathBuf::from("c"), PathBuf::from("d")],
+            objects.into_iter().map(|o| o.file_name).collect::<Vec<_>>()
         );
     }
 }

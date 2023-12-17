@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.75"
 clap = { version = "4.4.11", features = ["derive"] }
+crossbeam = "0.8.2"
 env_logger = "0.10.1"
 flate2 = { version = "1.0.28", features = ["zlib"] }
 libc = "0.2.151"
@@ -16,4 +17,9 @@ md5 = "0.7.0"
 rand = "0.8.5"
 rayon = "1.8.0"
 sha1 = "0.10.6"
+tikv-jemallocator = { version = "0.5.4", optional = true }
 uuid = { version = "1.6.1", features = ["v4"] }
+
+[features]
+default = ["tikv-jemallocator"]
+jemalloc = ["tikv-jemallocator"]

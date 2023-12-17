@@ -18,36 +18,43 @@ fn walk_dir(path: &Path) -> io::Result<Vec<Object>> {
     let mut objects = Vec::new();
 
     for entry in path.read_dir()? {
-        let path = entry?.path();
+        let entry = entry?;
+        let path = entry.path();
         if !filter(&path) {
             continue;
         }
 
-        let file_name = PathBuf::from(path.file_name().unwrap());
-        if path.is_dir() {
-            let object_type = ObjectType::Tree;
-            let entries = walk_dir(&path)?;
-            let object_id = write_tree_contents(&entries)?;
+        let file_name = PathBuf::from(entry.file_name());
+        match entry.file_type() {
+            Ok(ft) if ft.is_dir() => {
+                let object_type = ObjectType::Tree;
+                let entries = walk_dir(&path)?;
+                let object_id = write_tree_contents(&entries)?;
 
-            log::info!("{}\t{}\t{}", object_type, object_id, file_name.display());
-            objects.push(Object {
-                object_type,
-                object_id,
-                file_name,
-            });
-        } else {
-            let object_type = ObjectType::File;
-            let object_id = ObjectID::from_contents(&fs::read(path)?);
+                log::info!("{}\t{}\t{}", object_type, object_id, file_name.display());
+                objects.push(Object {
+                    object_type,
+                    object_id,
+                    file_name,
+                });
+            }
+            Ok(ft) if ft.is_file() => {
+                let object_type = ObjectType::File;
+                let object_id = ObjectID::from_contents(&fs::read(path)?);
 
-            log::info!("{}\t{}\t{}", object_type, object_id, file_name.display());
-            objects.push(Object {
-                object_type,
-                object_id,
-                file_name,
-            });
+                log::info!("{}\t{}\t{}", object_type, object_id, file_name.display());
+                objects.push(Object {
+                    object_type,
+                    object_id,
+                    file_name,
+                });
+            }
+            _ => {
+                panic!("unsupported file type: {}", path.display());
+            }
         }
     }
-    objects.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+    objects.sort();
 
     Ok(objects)
 }
