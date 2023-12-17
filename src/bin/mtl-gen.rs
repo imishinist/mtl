@@ -53,6 +53,9 @@ struct Cli {
 
     #[clap(long, default_value = "1234")]
     seed: u64,
+
+    #[clap(long, default_value = "2")]
+    prefix_byte: usize,
 }
 
 fn main() -> std::io::Result<()> {
@@ -75,7 +78,7 @@ fn main() -> std::io::Result<()> {
 
         let hash = hash.to_string();
 
-        let (prefix, rest) = hash.split_at(2);
+        let (prefix, rest) = hash.split_at(cli.prefix_byte);
         let path = dir.join(prefix);
         std::fs::create_dir_all(&path)?;
 
