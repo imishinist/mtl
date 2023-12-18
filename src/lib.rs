@@ -99,11 +99,11 @@ impl FromStr for ObjectID {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Object {
-    object_type: ObjectType,
-    object_id: ObjectID,
+    pub object_type: ObjectType,
+    pub object_id: ObjectID,
 
     // only contains basename of file
-    file_name: PathBuf,
+    pub file_name: PathBuf,
 }
 
 impl Object {
@@ -113,6 +113,12 @@ impl Object {
             object_id,
             file_name,
         }
+    }
+}
+
+impl AsRef<Object> for Object {
+    fn as_ref(&self) -> &Object {
+        self
     }
 }
 
@@ -162,11 +168,12 @@ fn ref_head_name() -> PathBuf {
 }
 
 // serialize entries should be called with sorted entries
-fn serialize_entries(entries: &[Object]) -> io::Result<Vec<u8>> {
+fn serialize_entries<T: AsRef<Object>>(entries: &[T]) -> io::Result<Vec<u8>> {
     // Note: should decrease allocation?
     let mut buf = Vec::new();
 
     for entry in entries {
+        let entry = entry.as_ref();
         buf.extend_from_slice(format!("{}\t{}\t", entry.object_type, entry.object_id).as_bytes());
         buf.extend_from_slice(entry.file_name.to_str().unwrap().as_bytes());
         buf.push(b'\n');
@@ -175,7 +182,7 @@ fn serialize_entries(entries: &[Object]) -> io::Result<Vec<u8>> {
     Ok(buf)
 }
 
-pub fn write_tree_contents(entries: &[Object]) -> io::Result<ObjectID> {
+pub fn write_tree_contents<T: AsRef<Object>>(entries: &[T]) -> io::Result<ObjectID> {
     let tree_contents = serialize_entries(&entries)?;
     let object_id = ObjectID::from_contents(&tree_contents);
 
@@ -188,7 +195,7 @@ pub fn write_tree_contents(entries: &[Object]) -> io::Result<ObjectID> {
     Ok(object_id)
 }
 
-fn write_head(object_id: &ObjectID) -> io::Result<()> {
+pub fn write_head(object_id: &ObjectID) -> io::Result<()> {
     let head_name = ref_head_name();
     fs::write(head_name, object_id.to_string())?;
 

@@ -2,9 +2,77 @@ use crate::{
     read_tree_contents, ref_head_name, write_head, write_tree_contents, Object, ObjectID,
     ObjectType, MTL_DIR,
 };
-use clap::{Args, Subcommand};
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
+use std::collections::HashMap;
+
+use itertools::Itertools;
+use clap::{Args, Subcommand};
+use rayon::prelude::*;
+
+struct FileEntry {
+    mode: ObjectType,
+    path: PathBuf,
+    depth: usize,
+}
+
+impl FileEntry {
+    fn new_file<P: AsRef<Path>>(path: P, depth: usize) -> Self {
+        Self {
+            mode: ObjectType::File,
+            path: path.as_ref().to_path_buf(),
+            depth,
+        }
+    }
+
+    fn new_dir<P: AsRef<Path>>(path: P, depth: usize) -> Self {
+        Self {
+            mode: ObjectType::Tree,
+            path: path.as_ref().to_path_buf(),
+            depth,
+        }
+    }
+}
+
+fn list_all_files<P: AsRef<Path>>(
+    relative_path: P,
+    depth: usize,
+) -> io::Result<(usize, Vec<FileEntry>)> {
+    let mut ret = Vec::new();
+    let dir = fs::read_dir(relative_path)?;
+
+    let mut max = depth;
+    for entry in dir {
+        let entry = entry?;
+        let path = entry.path();
+
+        if !filter(&path) {
+            continue;
+        }
+
+        let ft = entry.file_type()?;
+        if ft.is_dir() {
+            ret.push(FileEntry::new_dir(&path, depth));
+            let (d, sub) = list_all_files(path, depth + 1)?;
+            max = max.max(d);
+            ret.extend(sub);
+        } else {
+            ret.push(FileEntry::new_file(&path, depth));
+        }
+    }
+    Ok((max, ret))
+}
+
+fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(
+    map1: HashMap<K, Vec<V>>,
+    map2: HashMap<K, Vec<V>>,
+) -> HashMap<K, Vec<V>> {
+    map2.iter().fold(map1, |mut acc, (k, vs)| {
+        acc.entry(k.clone()).or_insert(vec![]).extend_from_slice(vs);
+        acc
+    })
+}
+
 
 fn filter(path: &Path) -> bool {
     let path = path.to_str().unwrap();
@@ -59,6 +127,58 @@ fn walk_dir(path: &Path) -> io::Result<Vec<Object>> {
     Ok(objects)
 }
 
+fn parallel_walk<P: AsRef<Path>>(cwd: P, files: Vec<FileEntry>, depth: usize, map: HashMap<PathBuf, Vec<Object>>) -> Object {
+    if depth == 0 {
+        assert!(map.len() == 1);
+
+        let path = cwd.as_ref().to_path_buf();
+        let mut objects = map.get(&path).unwrap().iter().sorted().collect::<Vec<_>>();
+        objects.sort();
+
+        let object_id = write_tree_contents(&objects).unwrap();
+        let object = Object::new(ObjectType::Tree, object_id, path);
+
+        return object;
+    }
+    let (target, rest) = files
+        .into_iter()
+        .partition::<Vec<_>, _>(|entry| entry.depth == depth);
+
+    let new_map = target
+        .par_iter()
+        .fold(
+            HashMap::new,
+            |mut m: HashMap<PathBuf, Vec<Object>>, entry| {
+                let parent = PathBuf::from(entry.path.parent().unwrap());
+                match entry.mode {
+                    ObjectType::Tree => {
+                        let objects = match map.get(&entry.path) {
+                            Some(objects) => objects.iter().sorted().collect::<Vec<_>>(),
+                            None => return m, // empty dir
+                        };
+
+                        let file_name = PathBuf::from(entry.path.file_name().unwrap());
+                        let object_id = write_tree_contents(&objects).unwrap();
+                        let object = Object::new(ObjectType::Tree, object_id, file_name);
+
+                        m.entry(parent.clone()).or_insert(vec![]).push(object);
+                    }
+                    ObjectType::File => {
+                        let contents = fs::read(&entry.path).unwrap();
+                        let object_id = ObjectID::from_contents(&contents);
+                        let file_name = PathBuf::from(entry.path.file_name().unwrap());
+                        let object = Object::new(ObjectType::File, object_id, file_name);
+                        m.entry(parent.clone()).or_insert(vec![]).push(object);
+                    }
+                }
+                m
+            },
+        )
+        .reduce(HashMap::new, merge_hashmap);
+    parallel_walk(cwd, rest, depth - 1, new_map)
+}
+
+
 #[derive(Args, Debug)]
 pub struct LocalBuild {}
 
@@ -66,12 +186,11 @@ impl LocalBuild {
     pub fn run(&self) -> io::Result<()> {
         let cwd = env::current_dir()?;
 
-        let entries = walk_dir(&cwd)?;
-        let object_id = write_tree_contents(&entries)?;
-        write_head(&object_id)?;
+        let (max_depth, files) = list_all_files(&cwd, 1)?;
 
-        println!("HEAD: {}", object_id);
-
+        let object = parallel_walk(&cwd, files, max_depth, HashMap::new());
+        write_head(&object.object_id)?;
+        println!("HEAD: {}", object.object_id);
         Ok(())
     }
 }
