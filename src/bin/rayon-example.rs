@@ -1,9 +1,11 @@
 use clap::Parser;
-use mtl::ObjectID;
+use mtl::{ObjectID, ObjectType};
 use rayon::Scope;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::{fs, io};
+use std::io::BufWriter;
+use std::io::Write;
 
 fn read<P: AsRef<Path>>(path: P) -> io::Result<ObjectID> {
     Ok(ObjectID::from_contents(&fs::read(path)?))
@@ -45,10 +47,29 @@ fn sequential_scan<P: AsRef<Path>>(src: P) -> io::Result<Vec<ObjectID>> {
     Ok(ret)
 }
 
+fn list<P: AsRef<Path>>(path: P) -> io::Result<Vec<(ObjectType, PathBuf)>> {
+    let mut ret = Vec::new();
+    let dir = fs::read_dir(path)?;
+    for entry in dir {
+        let entry = entry?;
+        let path = entry.path();
+
+        let ft = entry.file_type()?;
+        if ft.is_dir() {
+            ret.push((ObjectType::Tree, path.clone()));
+            ret.extend(list(&path)?);
+        } else {
+            ret.push((ObjectType::File, path));
+        }
+    }
+    Ok(ret)
+}
+
 #[derive(Debug, Clone, clap::ValueEnum)]
 enum Mode {
     Sequential,
     Parallel,
+    List,
 }
 
 impl std::fmt::Display for Mode {
@@ -56,6 +77,7 @@ impl std::fmt::Display for Mode {
         match self {
             Mode::Sequential => write!(f, "sequential"),
             Mode::Parallel => write!(f, "parallel"),
+            Mode::List => write!(f, "list"),
         }
     }
 }
@@ -71,6 +93,9 @@ struct Cli {
     source: String,
 }
 fn main() {
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
     env_logger::init();
 
     let cli = Cli::parse();
@@ -92,6 +117,14 @@ fn main() {
             for object_id in rx {
                 let object_id = object_id.unwrap();
                 println!("{}", object_id.to_string());
+            }
+        },
+        Mode::List => {
+            let paths = list(&source).unwrap();
+            let stdout = io::stdout().lock();
+            let mut stdout = BufWriter::new(stdout);
+            for (ty, p) in paths {
+                writeln!(&mut stdout, "{} {}", ty, p.to_string_lossy()).unwrap();
             }
         }
     }

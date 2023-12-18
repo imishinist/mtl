@@ -1,12 +1,11 @@
 use clap::Parser;
+use indicatif::ProgressBar;
 use std::io::BufRead;
 use std::io::Write;
-use std::sync::atomic::AtomicUsize;
-use indicatif::{MultiProgress, ProgressBar};
 
-use rand::{Rng, SeedableRng};
-use sha1::Digest;
+use rand::Rng;
 use rayon::prelude::*;
+use sha1::Digest;
 
 struct Hash {
     inner: [u8; 20],
@@ -47,6 +46,18 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<String>>
     Ok(lines)
 }
 
+fn split_by_prefixes<'a>(x: &'a str, prefix_bytes: &[usize]) -> (std::path::PathBuf, &'a str) {
+    let mut path = std::path::PathBuf::new();
+
+    let mut start = 0;
+    for &byte in prefix_bytes {
+        let end = start + byte;
+        path = path.join(&x[start..end]);
+        start = end;
+    }
+    (path, &x[start..])
+}
+
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about=None)]
 #[command(propagate_version = true)]
@@ -57,8 +68,11 @@ struct Cli {
     #[clap(long, default_value = "1234")]
     seed: u64,
 
-    #[clap(long, default_value = "2")]
-    prefix_byte: usize,
+    #[clap(long, default_value = "10000")]
+    nlines: usize,
+
+    #[clap(short, long, default_value = "2", value_delimiter = ',')]
+    prefix_bytes: Vec<usize>,
 }
 
 async fn async_main() -> std::io::Result<()> {
@@ -75,7 +89,7 @@ async fn async_main() -> std::io::Result<()> {
         let mut rng = rand::thread_rng();
 
         let n1 = rng.gen_range(0..len);
-        let n2 = rng.gen_range(n1..std::cmp::min(n1 + 10000, len));
+        let n2 = rng.gen_range(n1..std::cmp::min(n1 + cli.nlines, len));
 
         let lines = (&lines[n1..n2]).join("\n");
         let lines = lines.as_bytes();
@@ -83,7 +97,8 @@ async fn async_main() -> std::io::Result<()> {
 
         let hash = hash.to_string();
 
-        let (prefix, rest) = hash.split_at(cli.prefix_byte);
+        let (prefix, rest) = split_by_prefixes(&hash, &cli.prefix_bytes);
+
         let path = dir.join(prefix);
         std::fs::create_dir_all(&path).unwrap();
 

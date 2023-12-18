@@ -1,7 +1,7 @@
 pub mod commands;
 
-use std::cmp::Ordering;
 pub use commands::*;
+use std::cmp::Ordering;
 
 use std::fmt;
 use std::fs;
@@ -9,10 +9,10 @@ use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-#[cfg(feature="jemalloc")]
+#[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
 
-#[cfg(feature="jemalloc")]
+#[cfg(feature = "jemalloc")]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
@@ -115,7 +115,6 @@ impl Object {
         }
     }
 }
-
 
 impl PartialOrd<Self> for Object {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -287,7 +286,12 @@ mod tests {
         compare_target.sort_by(|a, b| a.file_name.cmp(&b.file_name));
         assert_eq!(objects, compare_target);
         assert_eq!(
-            vec![PathBuf::from("a"), PathBuf::from("b"), PathBuf::from("c"), PathBuf::from("d")],
+            vec![
+                PathBuf::from("a"),
+                PathBuf::from("b"),
+                PathBuf::from("c"),
+                PathBuf::from("d")
+            ],
             objects.into_iter().map(|o| o.file_name).collect::<Vec<_>>()
         );
     }
