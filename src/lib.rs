@@ -11,7 +11,6 @@ use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
 
@@ -212,7 +211,6 @@ pub fn write_head(object_id: &ObjectID) -> io::Result<()> {
 
     Ok(())
 }
-
 
 fn read_tree_contents(object_id: &ObjectID) -> Result<Vec<Object>, ParseError> {
     let file_name = object_file_name(object_id);
