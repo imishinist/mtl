@@ -1,6 +1,7 @@
 pub mod local;
 
-use std::path::{Path, PathBuf};
+use std::io::BufWriter;
+use std::path::PathBuf;
 use std::{env, fs, io};
 
 use clap::{Args, Subcommand};
@@ -9,6 +10,7 @@ use crate::{read_tree_contents, ref_head_name, ObjectID, ObjectType};
 
 #[derive(Subcommand)]
 pub enum LocalCommand {
+    /// Build a tree of objects
     Build(local::Build),
 }
 
@@ -22,50 +24,66 @@ impl LocalCommand {
 
 #[derive(Args, Debug)]
 pub struct PrintTreeCommand {
-    #[clap(long, short)]
-    dir: Option<String>,
+    /// Directory where to run the command
+    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
+    dir: Option<PathBuf>,
 
-    #[clap(long, short)]
-    object_id: Option<String>,
+    /// Root object ID where to start printing the tree
+    #[clap(long, short, value_name = "object")]
+    root: Option<ObjectID>,
 
-    #[clap(long, short)]
+    /// Type of objects to print
+    #[clap(long, short, value_name = "type")]
     r#type: Option<ObjectType>,
 
-    #[clap(long, short)]
+    /// Maximum depth to print
+    #[clap(long, value_name = "max-depth")]
     max_depth: Option<usize>,
 }
 
 impl PrintTreeCommand {
     pub fn run(&self) -> io::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .map(|s| PathBuf::from(s))
-            .unwrap_or_else(|| env::current_dir().unwrap());
-        env::set_current_dir(&dir)?;
+        let _dir = match self.dir {
+            Some(ref dir) => {
+                env::set_current_dir(dir)?;
+                dir.clone()
+            }
+            None => env::current_dir()?,
+        };
 
-        let object_id = self
-            .object_id
-            .as_ref()
-            .map(|s| ObjectID::from_hex(s))
-            .unwrap_or_else(|| {
+        let object_id = match self.root {
+            Some(ref object_id) => object_id.clone(),
+            None => {
                 let head = fs::read_to_string(ref_head_name())?;
-                Ok(ObjectID::from_hex(&head)?)
-            })?;
-
+                ObjectID::from_hex(&head)?
+            }
+        };
         let object_type = self.r#type.as_ref();
 
         println!("tree {}\t<root>", object_id);
-        Self::print_tree("", &object_id, object_type, 0, self.max_depth)?;
+        Self::print_tree("", &object_id, object_type, self.max_depth)?;
+
         Ok(())
     }
 
-    fn print_tree<P: AsRef<Path>>(
+    fn print_tree<P: Into<PathBuf>>(
         parent: P,
         object_id: &ObjectID,
         object_type: Option<&ObjectType>,
-        depth: usize,
         max_depth: Option<usize>,
+    ) -> io::Result<()> {
+        let stdout = io::stdout();
+        let mut stdout = BufWriter::new(stdout.lock());
+        Self::inner_print_tree(&mut stdout, parent, object_id, object_type, max_depth, 0)
+    }
+
+    fn inner_print_tree<W: io::Write, P: Into<PathBuf>>(
+        stdout: &mut W,
+        parent: P,
+        object_id: &ObjectID,
+        object_type: Option<&ObjectType>,
+        max_depth: Option<usize>,
+        depth: usize,
     ) -> io::Result<()> {
         if let Some(max_depth) = max_depth {
             if depth >= max_depth {
@@ -73,38 +91,37 @@ impl PrintTreeCommand {
             }
         }
 
-        let parent = parent.as_ref().to_path_buf();
+        let parent = parent.into();
         let objects = read_tree_contents(object_id).unwrap();
         for object in &objects {
+            let file_name = parent.join(&object.file_name);
+
             match object.object_type {
                 ObjectType::Tree => {
                     if object_type.is_none() || object_type == Some(&ObjectType::Tree) {
-                        println!(
+                        writeln!(
+                            stdout,
                             "tree {}\t{}/",
                             object.object_id,
-                            parent.join(&object.file_name).display()
-                        );
+                            file_name.display(),
+                        )?;
                     }
-                    Self::print_tree(
-                        &parent.join(&object.file_name),
+                    Self::inner_print_tree(
+                        stdout,
+                        &file_name,
                         &object.object_id,
                         object_type,
-                        depth + 1,
                         max_depth,
+                        depth + 1,
                     )?;
                 }
                 ObjectType::File => {
                     if object_type.is_none() || object_type == Some(&ObjectType::File) {
-                        println!(
-                            "file {}\t{}",
-                            object.object_id,
-                            parent.join(&object.file_name).display()
-                        );
+                        writeln!(stdout, "file {}\t{}", object.object_id, file_name.display())?;
                     }
                 }
             }
         }
-
         Ok(())
     }
 }

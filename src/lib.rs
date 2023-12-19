@@ -3,13 +3,15 @@ pub mod error;
 
 pub use commands::*;
 pub use error::*;
-use std::cmp::Ordering;
 
+use std::cmp::Ordering;
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
+
+use clap::ValueEnum;
 
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
@@ -18,7 +20,7 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, ValueEnum)]
 pub enum ObjectType {
     Tree,
     File,

@@ -8,6 +8,7 @@ use rayon::prelude::*;
 
 use crate::{write_head, write_tree_contents, Object, ObjectID, ObjectType, MTL_DIR};
 
+#[derive(Debug)]
 struct FileEntry {
     mode: ObjectType,
     path: PathBuf,
@@ -15,20 +16,20 @@ struct FileEntry {
 }
 
 impl FileEntry {
-    fn new_file<P: AsRef<Path>>(path: P, depth: usize) -> Self {
+    fn new<P: Into<PathBuf>>(mode: ObjectType, path: P, depth: usize) -> Self {
         Self {
-            mode: ObjectType::File,
-            path: path.as_ref().to_path_buf(),
+            mode,
+            path: path.into(),
             depth,
         }
     }
 
-    fn new_dir<P: AsRef<Path>>(path: P, depth: usize) -> Self {
-        Self {
-            mode: ObjectType::Tree,
-            path: path.as_ref().to_path_buf(),
-            depth,
-        }
+    fn new_file<P: Into<PathBuf>>(path: P, depth: usize) -> Self {
+        Self::new(ObjectType::File, path, depth)
+    }
+
+    fn new_dir<P: Into<PathBuf>>(path: P, depth: usize) -> Self {
+        Self::new(ObjectType::Tree, path, depth)
     }
 }
 

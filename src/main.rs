@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 
 use mtl::{LocalCommand, PrintTreeCommand};
 
+/// MTL is a tool that recursively computes hash values for files.
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
 #[command(propagate_version = true)]
@@ -14,8 +15,11 @@ struct MTLCommands {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Run a command locally
     #[command(subcommand)]
     Local(LocalCommand),
+
+    /// Print the tree of objects
     PrintTree(PrintTreeCommand),
 }
 
