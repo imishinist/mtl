@@ -114,6 +114,14 @@ impl Object {
             file_name,
         }
     }
+
+    pub fn new_tree(object_id: ObjectID, file_name: PathBuf) -> Self {
+        Object::new(ObjectType::Tree, object_id, file_name)
+    }
+
+    pub fn new_file(object_id: ObjectID, file_name: PathBuf) -> Self {
+        Object::new(ObjectType::File, object_id, file_name)
+    }
 }
 
 impl AsRef<Object> for Object {
