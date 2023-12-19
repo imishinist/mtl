@@ -1,5 +1,9 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
+use std::fs::File;
+use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::{env, fs, io};
 
 use clap::Args;
@@ -158,19 +162,151 @@ fn parallel_walk<P: AsRef<Path>>(
 }
 
 #[derive(Args, Debug)]
-pub struct Build {}
+pub struct Build {
+    /// Working directory.
+    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
+    cwd: Option<OsString>,
+
+    /// The input file containing a list of files to be scanned.
+    /// By default, it scans all files in the current directory.
+    /// If you want to receive from standard input, specify "-".
+    #[clap(short, long, value_name = "input-file", verbatim_doc_comment)]
+    input: Option<OsString>,
+
+    /// If true, don't write the object ID of the root tree to HEAD.
+    #[clap(short, long, default_value_t = false, verbatim_doc_comment)]
+    no_write_head: bool,
+}
 
 impl Build {
     pub fn run(&self) -> io::Result<()> {
-        let cwd = env::current_dir()?;
+        let cwd = match &self.cwd {
+            Some(cwd) => cwd.clone(),
+            None => env::current_dir()?.into_os_string(),
+        };
+        env::set_current_dir(&cwd)?;
 
-        log::info!("cwd: {}", cwd.display());
-        let (max_depth, files) = list_all_files(&cwd, 1)?;
+        log::info!("cwd: {:?}", cwd);
+        let (max_depth, files) = self.target_files(&cwd)?;
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
 
         let object = parallel_walk(&cwd, files, max_depth, HashMap::new())?;
-        write_head(&object.object_id)?;
-        println!("HEAD: {}", object.object_id);
+        if self.no_write_head {
+            println!("HEAD: {}", object.object_id);
+        } else {
+            write_head(&object.object_id)?;
+            println!("Written HEAD: {}", object.object_id);
+        }
         Ok(())
+    }
+
+    fn target_files<P: AsRef<Path>>(&self, cwd: P) -> io::Result<(usize, Vec<FileEntry>)> {
+        let Some(input) = &self.input else {
+            return list_all_files(cwd, 1);
+        };
+        let input = input.as_os_str();
+
+        let input: BufReaderWrapper<Box<dyn BufRead>> = if input.eq("-") {
+            let stdin = io::stdin().lock();
+            let reader = io::BufReader::new(stdin);
+            BufReaderWrapper::new(Box::new(reader))
+        } else {
+            let reader = io::BufReader::new(File::open(input)?);
+            BufReaderWrapper::new(Box::new(reader))
+        };
+
+        let mut max_depth = 0;
+        let mut ret = Vec::new();
+        for line in input {
+            let line = line?;
+            let file_path = line.trim();
+
+            let is_dir = file_path.ends_with('/');
+            let file_path = file_path.trim_start_matches("./").trim_end_matches('/');
+            let depth = file_path.split('/').count();
+            max_depth = max_depth.max(depth);
+
+            let mut path = PathBuf::from(file_path);
+            if !filter(&path) {
+                continue;
+            }
+
+            if path.is_relative() {
+                path = cwd.as_ref().join(path);
+            } else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "absolute path is not supported",
+                ));
+            }
+
+            if is_dir {
+                ret.push(FileEntry::new_dir(&path, depth));
+            } else {
+                ret.push(FileEntry::new_file(&path, depth));
+            }
+        }
+
+        Ok((max_depth, ret))
+    }
+}
+
+pub struct BufReaderWrapper<R: BufRead> {
+    reader: R,
+    buf: Rc<String>,
+}
+
+fn new_buf() -> Rc<String> {
+    Rc::new(String::with_capacity(1024)) // Tweakable capacity
+}
+
+impl<R: BufRead> BufReaderWrapper<R> {
+    pub fn new(inner: R) -> Self {
+        let buf = new_buf();
+        Self { reader: inner, buf }
+    }
+}
+
+impl<R: BufRead> Iterator for BufReaderWrapper<R> {
+    type Item = io::Result<Rc<String>>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let buf = match Rc::get_mut(&mut self.buf) {
+            Some(buf) => {
+                buf.clear();
+                buf
+            }
+            None => {
+                self.buf = new_buf();
+                Rc::make_mut(&mut self.buf)
+            }
+        };
+
+        self.reader
+            .read_line(buf)
+            .map(|u| {
+                if u == 0 {
+                    None
+                } else {
+                    Some(Rc::clone(&self.buf))
+                }
+            })
+            .transpose()
+    }
+}
+
+impl<R: BufRead> Read for BufReaderWrapper<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.reader.read(buf)
+    }
+}
+
+impl<R: BufRead> BufRead for BufReaderWrapper<R> {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        self.reader.fill_buf()
+    }
+
+    fn consume(&mut self, amt: usize) {
+        self.reader.consume(amt)
     }
 }

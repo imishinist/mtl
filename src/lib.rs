@@ -1,8 +1,10 @@
 pub mod commands;
 pub mod error;
+pub(crate) mod filesystem;
 
 pub use commands::*;
 pub use error::*;
+pub use filesystem::*;
 
 use std::cmp::Ordering;
 use std::fmt;
