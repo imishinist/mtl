@@ -1,6 +1,8 @@
 pub mod commands;
+pub mod error;
 
 pub use commands::*;
+pub use error::*;
 use std::cmp::Ordering;
 
 use std::fmt;
@@ -8,6 +10,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
+
 
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
@@ -99,11 +102,11 @@ impl FromStr for ObjectID {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct Object {
-    pub object_type: ObjectType,
-    pub object_id: ObjectID,
+    object_type: ObjectType,
+    object_id: ObjectID,
 
     // only contains basename of file
-    pub file_name: PathBuf,
+    file_name: PathBuf,
 }
 
 impl Object {
@@ -210,22 +213,27 @@ pub fn write_head(object_id: &ObjectID) -> io::Result<()> {
     Ok(())
 }
 
-fn read_tree_contents(object_id: &ObjectID) -> io::Result<Vec<Object>> {
+
+fn read_tree_contents(object_id: &ObjectID) -> Result<Vec<Object>, ParseError> {
     let file_name = object_file_name(object_id);
     let tree_contents = fs::read_to_string(file_name)?;
 
     let mut objects = Vec::new();
     for line in tree_contents.lines() {
         let mut parts = line.split('\t');
-        let object_type = parts.next().unwrap().parse::<ObjectType>().unwrap();
-        let object_id = parts.next().unwrap().parse::<ObjectID>().unwrap();
-        let file_name = PathBuf::from(parts.next().unwrap());
+        let object_type: ObjectType = parts
+            .next()
+            .ok_or(ParseError::InvalidFormat)?
+            .parse()
+            .map_err(ParseError::InvalidToken)?;
+        let object_id: ObjectID = parts
+            .next()
+            .ok_or(ParseError::InvalidFormat)?
+            .parse()
+            .map_err(ParseError::InvalidToken)?;
+        let file_name = PathBuf::from(parts.next().ok_or(ParseError::InvalidFormat)?);
 
-        objects.push(Object {
-            object_type,
-            object_id,
-            file_name,
-        });
+        objects.push(Object::new(object_type, object_id, file_name));
     }
 
     Ok(objects)

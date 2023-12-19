@@ -243,7 +243,7 @@ impl PrintTreeCommand {
         }
 
         let parent = parent.as_ref().to_path_buf();
-        let objects = read_tree_contents(object_id)?;
+        let objects = read_tree_contents(object_id).unwrap();
         for object in &objects {
             match object.object_type {
                 ObjectType::Tree => {
