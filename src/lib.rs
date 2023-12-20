@@ -128,6 +128,14 @@ impl Object {
     pub fn new_file(object_id: ObjectID, file_name: PathBuf) -> Self {
         Object::new(ObjectType::File, object_id, file_name)
     }
+
+    pub fn is_tree(&self) -> bool {
+        self.object_type == ObjectType::Tree
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.object_type == ObjectType::File
+    }
 }
 
 impl AsRef<Object> for Object {

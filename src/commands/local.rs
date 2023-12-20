@@ -7,6 +7,7 @@ use std::rc::Rc;
 use std::{env, fs, io};
 
 use clap::Args;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use rayon::prelude::*;
 
@@ -40,10 +41,12 @@ impl FileEntry {
 fn list_all_files<P: AsRef<Path>>(
     relative_path: P,
     depth: usize,
-) -> io::Result<(usize, Vec<FileEntry>)> {
+) -> io::Result<(usize, Vec<FileEntry>, u64, u64)> {
     let mut ret = Vec::new();
     let dir = fs::read_dir(relative_path)?;
 
+    let mut files = 0;
+    let mut dirs = 0;
     let mut max = depth;
     for entry in dir {
         let entry = entry?;
@@ -55,15 +58,19 @@ fn list_all_files<P: AsRef<Path>>(
 
         let ft = entry.file_type()?;
         if ft.is_dir() {
+            dirs += 1;
             ret.push(FileEntry::new_dir(&path, depth));
-            let (d, sub) = list_all_files(path, depth + 1)?;
+            let (d, sub, nfiles, ndirs) = list_all_files(path, depth + 1)?;
+            files += nfiles;
+            dirs += ndirs;
             max = max.max(d);
             ret.extend(sub);
         } else {
+            files += 1;
             ret.push(FileEntry::new_file(&path, depth));
         }
     }
-    Ok((max, ret))
+    Ok((max, ret, files, dirs))
 }
 
 fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(
@@ -117,6 +124,8 @@ fn process_file_content(entry: &FileEntry) -> io::Result<Object> {
 }
 
 fn parallel_walk<P: AsRef<Path>>(
+    pb_files: &ProgressBar,
+    pb_dirs: &ProgressBar,
     cwd: P,
     files: Vec<FileEntry>,
     depth: usize,
@@ -133,6 +142,11 @@ fn parallel_walk<P: AsRef<Path>>(
         objects.par_sort_unstable();
 
         let object_id = write_tree_contents(&objects)?;
+
+        let (file, dir) = objects.iter().partition::<Vec<_>, _>(|o| o.is_file());
+        pb_files.inc(file.len() as u64);
+        pb_dirs.inc(dir.len() as u64);
+
         return Ok(Object::new_tree(object_id, path));
     }
     let (target, rest) = files
@@ -145,11 +159,17 @@ fn parallel_walk<P: AsRef<Path>>(
             HashMap::new,
             |mut m: HashMap<PathBuf, Vec<Object>>, entry| {
                 let object = match entry.mode {
-                    ObjectType::Tree => match process_tree_content(&map, &entry).unwrap() {
-                        Some(object) => object,
-                        None => return m,
+                    ObjectType::Tree => {
+                        pb_dirs.inc(1);
+                        match process_tree_content(&map, &entry).unwrap() {
+                            Some(object) => object,
+                            None => return m,
+                        }
                     },
-                    ObjectType::File => process_file_content(&entry).unwrap(),
+                    ObjectType::File => {
+                        pb_files.inc(1);
+                        process_file_content(&entry).unwrap()
+                    },
                 };
 
                 let parent = PathBuf::from(entry.path.parent().unwrap());
@@ -158,7 +178,7 @@ fn parallel_walk<P: AsRef<Path>>(
             },
         )
         .reduce(HashMap::new, merge_hashmap);
-    parallel_walk(cwd, rest, depth - 1, new_map)
+    parallel_walk(pb_files, pb_dirs, cwd, rest, depth - 1, new_map)
 }
 
 #[derive(Args, Debug)]
@@ -187,10 +207,27 @@ impl Build {
         env::set_current_dir(&cwd)?;
 
         log::info!("cwd: {:?}", cwd);
-        let (max_depth, files) = self.target_files(&cwd)?;
+        let (max_depth, files, num_files, num_dirs) = self.target_files(&cwd)?;
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
 
-        let object = parallel_walk(&cwd, files, max_depth, HashMap::new())?;
+        let m = MultiProgress::new();
+        let sty = ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
+        )
+            .unwrap()
+            .progress_chars("##-");
+
+        let pb_files = m.add(ProgressBar::new(num_files));
+        pb_files.set_style(sty.clone());
+        pb_files.set_message("files");
+        let pb_dirs = m.add(ProgressBar::new(num_dirs));
+        pb_dirs.set_style(sty.clone());
+        pb_dirs.set_message("dirs");
+
+        let object = parallel_walk(&pb_files, &pb_dirs, &cwd, files, max_depth, HashMap::new())?;
+        pb_files.finish_and_clear();
+        pb_dirs.finish_and_clear();
+
         if self.no_write_head {
             println!("HEAD: {}", object.object_id);
         } else {
@@ -200,7 +237,7 @@ impl Build {
         Ok(())
     }
 
-    fn target_files<P: AsRef<Path>>(&self, cwd: P) -> io::Result<(usize, Vec<FileEntry>)> {
+    fn target_files<P: AsRef<Path>>(&self, cwd: P) -> io::Result<(usize, Vec<FileEntry>, u64, u64)> {
         let Some(input) = &self.input else {
             return list_all_files(cwd, 1);
         };
@@ -215,6 +252,8 @@ impl Build {
             BufReaderWrapper::new(Box::new(reader))
         };
 
+        let mut files = 0;
+        let mut dirs = 0;
         let mut max_depth = 0;
         let mut ret = Vec::new();
         for line in input {
@@ -241,13 +280,15 @@ impl Build {
             }
 
             if is_dir {
+                dirs += 1;
                 ret.push(FileEntry::new_dir(&path, depth));
             } else {
+                files += 1;
                 ret.push(FileEntry::new_file(&path, depth));
             }
         }
 
-        Ok((max_depth, ret))
+        Ok((max_depth, ret, files, dirs))
     }
 }
 
