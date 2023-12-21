@@ -32,6 +32,10 @@ criterion = "0.5.1"
 default = []
 jemalloc = ["tikv-jemallocator"]
 
+[lib]
+name = "mtl"
+path = "src/lib.rs"
+
 [[bench]]
-name = "benchmark"
+name = "md5"
 harness = false

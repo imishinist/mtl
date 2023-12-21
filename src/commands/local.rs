@@ -165,11 +165,11 @@ fn parallel_walk<P: AsRef<Path>>(
                             Some(object) => object,
                             None => return m,
                         }
-                    },
+                    }
                     ObjectType::File => {
                         pb_files.inc(1);
                         process_file_content(&entry).unwrap()
-                    },
+                    }
                 };
 
                 let parent = PathBuf::from(entry.path.parent().unwrap());
@@ -214,8 +214,8 @@ impl Build {
         let sty = ProgressStyle::with_template(
             "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
         )
-            .unwrap()
-            .progress_chars("##-");
+        .unwrap()
+        .progress_chars("##-");
 
         let pb_files = m.add(ProgressBar::new(num_files));
         pb_files.set_style(sty.clone());
@@ -237,7 +237,10 @@ impl Build {
         Ok(())
     }
 
-    fn target_files<P: AsRef<Path>>(&self, cwd: P) -> io::Result<(usize, Vec<FileEntry>, u64, u64)> {
+    fn target_files<P: AsRef<Path>>(
+        &self,
+        cwd: P,
+    ) -> io::Result<(usize, Vec<FileEntry>, u64, u64)> {
         let Some(input) = &self.input else {
             return list_all_files(cwd, 1);
         };

@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod error;
 pub(crate) mod filesystem;
+pub mod hash;
 
 pub use commands::*;
 pub use error::*;
@@ -79,10 +80,7 @@ impl ObjectID {
     }
 
     pub fn from_contents<T: AsRef<[u8]>>(contents: T) -> Self {
-        let mut context = md5::Context::new();
-        context.consume(contents);
-
-        ObjectID::new(context.compute().into())
+        ObjectID::new(hash::md5_contents(contents))
     }
 }
 
