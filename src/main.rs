@@ -1,4 +1,4 @@
-use std::io;
+use std::{io, time};
 
 use clap::{Parser, Subcommand};
 
@@ -23,18 +23,29 @@ enum Commands {
     PrintTree(PrintTreeCommand),
 }
 
+#[cfg(feature = "dhat-heap")]
+#[global_allocator]
+static GLOBAL: dhat::Alloc = dhat::Alloc;
+
 fn main() -> io::Result<()> {
+    #[cfg(feature = "dhat-heap")]
+    let _profiler = dhat::Profiler::new_heap();
+
     env_logger::init();
 
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
 
+    let start = time::Instant::now();
+
     let mtl = MTLCommands::parse();
     match &mtl.commands {
         Commands::Local(local) => local.run()?,
         Commands::PrintTree(print_tree) => print_tree.run()?,
     }
+
+    log::info!("Elapsed time: {:?}", start.elapsed());
 
     Ok(())
 }

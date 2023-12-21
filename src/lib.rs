@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::ValueEnum;
@@ -81,6 +81,11 @@ impl ObjectID {
 
     pub fn from_contents<T: AsRef<[u8]>>(contents: T) -> Self {
         ObjectID::new(hash::md5_contents(contents))
+    }
+
+    pub fn from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        let md5 = hash::md5_file_partial(path, 1024 * 1024)?;
+        Ok(ObjectID::new(md5))
     }
 }
 
