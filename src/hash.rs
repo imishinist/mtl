@@ -47,7 +47,6 @@ pub fn md5_string(h: [u8; 16]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::{fs, io};
@@ -104,7 +103,7 @@ mod tests {
         temp_file.write(contents).unwrap();
 
         let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_file(&file).unwrap());
+        let actual = super::md5_string(super::md5_file_partial(&file, 65536).unwrap());
         assert_eq!(expected, actual);
     }
 
@@ -113,7 +112,7 @@ mod tests {
         let file = PathBuf::from("/usr/share/dict/words");
 
         let expected = super::md5_file(&file).unwrap();
-        let actual = super::md5_file_partial(&file).unwrap();
+        let actual = super::md5_file_partial(&file, 65536).unwrap();
         assert_eq!(expected, actual);
     }
 }
