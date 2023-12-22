@@ -1,7 +1,20 @@
+use sha2::Digest;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::{fs, io};
+
+pub fn sha256_contents<T: AsRef<[u8]>>(contents: T) -> [u8; 32] {
+    let mut context = sha2::Sha256::new();
+    context.update(contents);
+
+    context.finalize().into()
+}
+
+pub fn sha256_file<P: AsRef<Path>>(path: P) -> io::Result<[u8; 32]> {
+    let contents = fs::read(path)?;
+    Ok(sha256_contents(contents))
+}
 
 pub fn md5_contents<T: AsRef<[u8]>>(contents: T) -> [u8; 16] {
     let mut context = md5::Context::new();
@@ -37,9 +50,9 @@ pub fn md5_file_partial<P: AsRef<Path>>(path: P, buf_size: usize) -> io::Result<
     Ok(context.compute().into())
 }
 
-pub fn md5_string(h: [u8; 16]) -> String {
+pub fn stringify_hash<T: AsRef<[u8]>>(h: T) -> String {
     let mut s = String::new();
-    for byte in h.iter() {
+    for byte in h.as_ref().iter() {
         s.push_str(&format!("{:02x}", byte));
     }
     s
@@ -76,11 +89,20 @@ mod tests {
     }
 
     #[test]
+    fn test_sha256_contents() {
+        let contents = "Hello, world!";
+
+        let expected = "315f5bdb76d078c43b8ac0064e4a0164612b1fce77c869345bfc94c75894edd3";
+        let actual = super::stringify_hash(super::sha256_contents(contents));
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
     fn test_md5_contents() {
         let contents = "Hello, world!";
 
         let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_contents(contents));
+        let actual = super::stringify_hash(super::md5_contents(contents));
         assert_eq!(expected, actual);
     }
 
@@ -94,7 +116,7 @@ mod tests {
         file.write(contents).unwrap();
 
         let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_file(&file_path).unwrap());
+        let actual = super::stringify_hash(super::md5_file(&file_path).unwrap());
         assert_eq!(expected, actual);
     }
 
@@ -108,7 +130,7 @@ mod tests {
         file.write(contents).unwrap();
 
         let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_file_partial(&file_path, 65536).unwrap());
+        let actual = super::stringify_hash(super::md5_file_partial(&file_path, 65536).unwrap());
         assert_eq!(expected, actual);
     }
 

@@ -64,7 +64,10 @@ fn list_all_files(hidden: bool) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u
         (max_depth, result, files, dirs)
     });
 
-    let walker = WalkBuilder::new(".").hidden(hidden).threads(num_cpu).build_parallel();
+    let walker = WalkBuilder::new(".")
+        .hidden(hidden)
+        .threads(num_cpu)
+        .build_parallel();
     walker.run(|| {
         let tx = tx.clone();
         Box::new(move |entry| {
