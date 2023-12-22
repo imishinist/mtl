@@ -1,7 +1,7 @@
-use std::path::Path;
-use std::{fs, io};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
+use std::{fs, io};
 
 pub fn md5_contents<T: AsRef<[u8]>>(contents: T) -> [u8; 16] {
     let mut context = md5::Context::new();
@@ -47,10 +47,10 @@ pub fn md5_string(h: [u8; 16]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::{fs, io};
-    use std::fs::File;
 
     struct TempFile {
         path: PathBuf,
@@ -116,5 +116,4 @@ mod tests {
         let actual = super::md5_file_partial(&file).unwrap();
         assert_eq!(expected, actual);
     }
-
 }

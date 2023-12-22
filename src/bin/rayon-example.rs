@@ -1,11 +1,11 @@
 use clap::Parser;
 use mtl::{ObjectID, ObjectType};
 use rayon::Scope;
+use std::io::BufWriter;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::{fs, io};
-use std::io::BufWriter;
-use std::io::Write;
 
 fn read<P: AsRef<Path>>(path: P) -> io::Result<ObjectID> {
     Ok(ObjectID::from_contents(&fs::read(path)?))
@@ -118,7 +118,7 @@ fn main() {
                 let object_id = object_id.unwrap();
                 println!("{}", object_id.to_string());
             }
-        },
+        }
         Mode::List => {
             let paths = list(&source).unwrap();
             let stdout = io::stdout().lock();

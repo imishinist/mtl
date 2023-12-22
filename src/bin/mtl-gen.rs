@@ -106,7 +106,7 @@ async fn async_main() -> std::io::Result<()> {
         let mut file = std::fs::File::create(path).unwrap();
         file.write_all(&lines).unwrap();
     });
-    pb.finish();
+    pb.finish_and_clear();
 
     Ok(())
 }
