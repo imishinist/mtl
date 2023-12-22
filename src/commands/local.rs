@@ -89,8 +89,8 @@ fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(
     map1: HashMap<K, Vec<V>>,
     map2: HashMap<K, Vec<V>>,
 ) -> HashMap<K, Vec<V>> {
-    map2.iter().fold(map1, |mut acc, (k, vs)| {
-        acc.entry(k.clone()).or_insert(vec![]).extend_from_slice(vs);
+    map2.into_iter().fold(map1, |mut acc, (k, vs)| {
+        acc.entry(k).or_insert(vec![]).extend(vs);
         acc
     })
 }
