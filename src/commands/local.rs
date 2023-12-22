@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, Read};
+use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::{env, fs, io};
@@ -73,7 +74,11 @@ fn list_all_files(hidden: bool) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u
             files += 1;
             result.push(FileEntry::new_file(path, depth));
         } else {
-            return Err(anyhow!("not supported file type"));
+            log::warn!(
+                "ignored: not supported file type: {} \"{}\"",
+                format_filetype(&ft),
+                path.display()
+            );
         }
     }
 
@@ -211,7 +216,8 @@ impl Build {
         env::set_current_dir(&cwd)?;
 
         log::info!("cwd: {:?}", cwd);
-        let (max_depth, files, num_files, num_dirs) = self.target_files().expect("TODO");
+        let (max_depth, files, num_files, num_dirs) =
+            self.target_files().expect("failed to list all files");
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
 
         let m = MultiProgress::new();
@@ -289,6 +295,54 @@ impl Build {
         ret.push(FileEntry::new_dir(PathBuf::from("."), 0));
 
         Ok((max_depth, ret, files, dirs))
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct List {
+    /// Working directory.
+    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
+    cwd: Option<OsString>,
+}
+
+fn format_filetype(mode: &fs::FileType) -> &'static str {
+    if mode.is_dir() {
+        "dir"
+    } else if mode.is_file() {
+        "file"
+    } else if mode.is_symlink() {
+        "symlink"
+    } else if mode.is_block_device() {
+        "block"
+    } else if mode.is_char_device() {
+        "char"
+    } else if mode.is_fifo() {
+        "fifo"
+    } else if mode.is_socket() {
+        "socket"
+    } else {
+        "unknown"
+    }
+}
+
+impl List {
+    pub fn run(&self) -> io::Result<()> {
+        let cwd = match &self.cwd {
+            Some(cwd) => cwd.clone(),
+            None => env::current_dir()?.into_os_string(),
+        };
+        env::set_current_dir(&cwd)?;
+
+        let (max_depth, files, _, _) = list_all_files(false).expect("failed to list all files");
+        log::info!("max_depth: {}, files: {}", max_depth, files.len());
+        for file in files {
+            if file.path == PathBuf::from("") {
+                println!("{} .", file.mode);
+                continue;
+            }
+            println!("{} {}", file.mode, file.path.display());
+        }
+        Ok(())
     }
 }
 

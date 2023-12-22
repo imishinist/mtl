@@ -12,12 +12,16 @@ use crate::{read_tree_contents, ref_head_name, ObjectID, ObjectType};
 pub enum LocalCommand {
     /// Build a tree of objects
     Build(local::Build),
+
+    /// List target files
+    List(local::List),
 }
 
 impl LocalCommand {
     pub fn run(&self) -> io::Result<()> {
         match self {
             LocalCommand::Build(cmd) => cmd.run(),
+            LocalCommand::List(cmd) => cmd.run(),
         }
     }
 }
@@ -60,7 +64,7 @@ impl PrintTreeCommand {
         };
         let object_type = self.r#type.as_ref();
 
-        println!("tree {}\t<root>", object_id);
+        println!("tree {}\t.", object_id);
         Self::print_tree("", &object_id, object_type, self.max_depth)?;
 
         Ok(())
