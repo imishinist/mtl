@@ -9,7 +9,7 @@ use std::{env, fs, io};
 
 use anyhow::anyhow;
 use clap::Args;
-use ignore::WalkBuilder;
+use ignore::{WalkBuilder, WalkState};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use rayon::prelude::*;
@@ -44,45 +44,69 @@ impl FileEntry {
 }
 
 fn list_all_files(hidden: bool) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
-    let walker = WalkBuilder::new(".").hidden(hidden).build();
+    let num_cpu = 4;
 
-    let mut result = Vec::new();
+    let (tx, rx) = crossbeam_channel::bounded::<FileEntry>(100);
+    let output_thread = std::thread::spawn(move || {
+        let mut result = Vec::new();
+        let mut max_depth = 0;
+        let mut files = 0;
+        let mut dirs = 0;
 
-    let mut max_depth = 0;
-    let mut files = 0;
-    let mut dirs = 0;
-    for entry in walker {
-        let entry = entry.map_err(|e| anyhow!("{}", e))?;
-
-        let depth = entry.depth();
-        max_depth = max_depth.max(depth);
-
-        let ft = entry.file_type().ok_or(io::Error::new(
-            io::ErrorKind::NotFound,
-            "not found file type",
-        ))?;
-
-        let path = strip_current_dir(entry.path());
-        if is_ignore_dir(&path) {
-            continue;
+        for entry in rx {
+            max_depth = max_depth.max(entry.depth);
+            match entry.mode {
+                ObjectType::File => files += 1,
+                ObjectType::Tree => dirs += 1,
+            }
+            result.push(entry);
         }
+        (max_depth, result, files, dirs)
+    });
 
-        if ft.is_dir() {
-            dirs += 1;
-            result.push(FileEntry::new_dir(path, depth));
-        } else if ft.is_file() {
-            files += 1;
-            result.push(FileEntry::new_file(path, depth));
-        } else {
-            log::warn!(
-                "ignored: not supported file type: {} \"{}\"",
-                format_filetype(&ft),
-                path.display()
-            );
-        }
-    }
+    let walker = WalkBuilder::new(".").hidden(hidden).threads(num_cpu).build_parallel();
+    walker.run(|| {
+        let tx = tx.clone();
+        Box::new(move |entry| {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(e) => {
+                    log::warn!("ignored: {}", e);
+                    return WalkState::Continue;
+                }
+            };
 
-    Ok((max_depth, result, files, dirs))
+            let depth = entry.depth();
+            let ft = match entry.file_type() {
+                Some(ft) => ft,
+                None => {
+                    return WalkState::Continue;
+                }
+            };
+
+            let path = strip_current_dir(entry.path());
+            if is_ignore_dir(&path) {
+                return WalkState::Continue;
+            }
+
+            if ft.is_dir() {
+                tx.send(FileEntry::new_dir(path, depth)).unwrap();
+            } else if ft.is_file() {
+                tx.send(FileEntry::new_file(path, depth)).unwrap();
+            } else {
+                log::warn!(
+                    "ignored: not supported file type: {} \"{}\"",
+                    format_filetype(&ft),
+                    path.display()
+                );
+                return WalkState::Continue;
+            }
+            WalkState::Continue
+        })
+    });
+    drop(tx);
+
+    Ok(output_thread.join().unwrap())
 }
 
 fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(

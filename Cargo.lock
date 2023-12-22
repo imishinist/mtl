@@ -711,6 +711,7 @@ dependencies = [
  "clap",
  "criterion",
  "crossbeam",
+ "crossbeam-channel",
  "dhat",
  "env_logger",
  "flate2",
