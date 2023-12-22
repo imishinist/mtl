@@ -6,12 +6,16 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::{env, fs, io};
 
+use anyhow::anyhow;
 use clap::Args;
+use ignore::WalkBuilder;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use rayon::prelude::*;
 
-use crate::{write_head, write_tree_contents, Object, ObjectID, ObjectType, MTL_DIR};
+use crate::{
+    strip_current_dir, write_head, write_tree_contents, Object, ObjectID, ObjectType, MTL_DIR,
+};
 
 #[derive(Debug)]
 struct FileEntry {
@@ -38,39 +42,42 @@ impl FileEntry {
     }
 }
 
-fn list_all_files<P: AsRef<Path>>(
-    relative_path: P,
-    depth: usize,
-) -> io::Result<(usize, Vec<FileEntry>, u64, u64)> {
-    let mut ret = Vec::new();
-    let dir = fs::read_dir(relative_path)?;
+fn list_all_files(hidden: bool) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
+    let walker = WalkBuilder::new(".").hidden(hidden).build();
 
+    let mut result = Vec::new();
+
+    let mut max_depth = 0;
     let mut files = 0;
     let mut dirs = 0;
-    let mut max = depth;
-    for entry in dir {
-        let entry = entry?;
-        let path = entry.path();
+    for entry in walker {
+        let entry = entry.map_err(|e| anyhow!("{}", e))?;
 
-        if !filter(&path) {
+        let depth = entry.depth();
+        max_depth = max_depth.max(depth);
+
+        let ft = entry.file_type().ok_or(io::Error::new(
+            io::ErrorKind::NotFound,
+            "not found file type",
+        ))?;
+
+        let path = strip_current_dir(entry.path());
+        if is_ignore_dir(&path) {
             continue;
         }
 
-        let ft = entry.file_type()?;
         if ft.is_dir() {
             dirs += 1;
-            ret.push(FileEntry::new_dir(&path, depth));
-            let (d, sub, nfiles, ndirs) = list_all_files(path, depth + 1)?;
-            files += nfiles;
-            dirs += ndirs;
-            max = max.max(d);
-            ret.extend(sub);
-        } else {
+            result.push(FileEntry::new_dir(path, depth));
+        } else if ft.is_file() {
             files += 1;
-            ret.push(FileEntry::new_file(&path, depth));
+            result.push(FileEntry::new_file(path, depth));
+        } else {
+            return Err(anyhow!("not supported file type"));
         }
     }
-    Ok((max, ret, files, dirs))
+
+    Ok((max_depth, result, files, dirs))
 }
 
 fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(
@@ -83,12 +90,9 @@ fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(
     })
 }
 
-fn filter(path: &Path) -> bool {
+fn is_ignore_dir(path: &Path) -> bool {
     let path = path.to_str().unwrap();
-    !(path.contains(".git")
-        || path.contains(MTL_DIR)
-        || path.contains("target")
-        || path.contains(".idea"))
+    path.contains(MTL_DIR) || path.contains(".git")
 }
 
 fn process_tree_content(
@@ -100,12 +104,10 @@ fn process_tree_content(
         None => return Ok(None), // empty dir
     };
 
-    let file_name = PathBuf::from(
-        entry
-            .path
-            .file_name()
-            .ok_or(io::Error::new(io::ErrorKind::NotFound, "not found"))?,
-    );
+    let file_name = PathBuf::from(entry.path.file_name().ok_or(io::Error::new(
+        io::ErrorKind::NotFound,
+        "failed to get file_name",
+    ))?);
     let object_id = write_tree_contents(&objects)?;
     Ok(Some(Object::new_tree(object_id, file_name)))
 }
@@ -113,20 +115,17 @@ fn process_tree_content(
 fn process_file_content(entry: &FileEntry) -> io::Result<Object> {
     let contents = fs::read(&entry.path)?;
     let object_id = ObjectID::from_contents(&contents);
-    let file_name = PathBuf::from(
-        entry
-            .path
-            .file_name()
-            .ok_or(io::Error::new(io::ErrorKind::NotFound, "not found"))?,
-    );
+    let file_name = PathBuf::from(entry.path.file_name().ok_or(io::Error::new(
+        io::ErrorKind::NotFound,
+        "failed to get file_name",
+    ))?);
 
     Ok(Object::new_file(object_id, file_name))
 }
 
-fn parallel_walk<P: AsRef<Path>>(
+fn parallel_walk(
     pb_files: &ProgressBar,
     pb_dirs: &ProgressBar,
-    cwd: P,
     files: Vec<FileEntry>,
     depth: usize,
     map: HashMap<PathBuf, Vec<Object>>,
@@ -134,7 +133,7 @@ fn parallel_walk<P: AsRef<Path>>(
     if depth == 0 {
         assert!(map.len() == 1);
 
-        let path = cwd.as_ref().to_path_buf();
+        let path = PathBuf::from("");
         let mut objects = map
             .get(&path)
             .ok_or(io::Error::new(io::ErrorKind::NotFound, "not found"))?
@@ -172,13 +171,14 @@ fn parallel_walk<P: AsRef<Path>>(
                     }
                 };
 
-                let parent = PathBuf::from(entry.path.parent().unwrap());
+                let parent = entry.path.parent().unwrap();
+                let parent = PathBuf::from(parent);
                 m.entry(parent).or_insert(vec![]).push(object);
                 m
             },
         )
         .reduce(HashMap::new, merge_hashmap);
-    parallel_walk(pb_files, pb_dirs, cwd, rest, depth - 1, new_map)
+    parallel_walk(pb_files, pb_dirs, rest, depth - 1, new_map)
 }
 
 #[derive(Args, Debug)]
@@ -196,6 +196,10 @@ pub struct Build {
     /// If true, don't write the object ID of the root tree to HEAD.
     #[clap(short, long, default_value_t = false, verbatim_doc_comment)]
     no_write_head: bool,
+
+    /// If true, scan hidden files.
+    #[clap(long, default_value_t = false, verbatim_doc_comment)]
+    hidden: bool,
 }
 
 impl Build {
@@ -207,7 +211,7 @@ impl Build {
         env::set_current_dir(&cwd)?;
 
         log::info!("cwd: {:?}", cwd);
-        let (max_depth, files, num_files, num_dirs) = self.target_files(&cwd)?;
+        let (max_depth, files, num_files, num_dirs) = self.target_files().expect("TODO");
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
 
         let m = MultiProgress::new();
@@ -224,7 +228,7 @@ impl Build {
         pb_dirs.set_style(sty.clone());
         pb_dirs.set_message("dirs");
 
-        let object = parallel_walk(&pb_files, &pb_dirs, &cwd, files, max_depth, HashMap::new())?;
+        let object = parallel_walk(&pb_files, &pb_dirs, files, max_depth, HashMap::new())?;
         pb_files.finish_and_clear();
         pb_dirs.finish_and_clear();
 
@@ -237,12 +241,9 @@ impl Build {
         Ok(())
     }
 
-    fn target_files<P: AsRef<Path>>(
-        &self,
-        cwd: P,
-    ) -> io::Result<(usize, Vec<FileEntry>, u64, u64)> {
+    fn target_files(&self) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
         let Some(input) = &self.input else {
-            return list_all_files(cwd, 1);
+            return list_all_files(self.hidden);
         };
         let input = input.as_os_str();
 
@@ -259,6 +260,7 @@ impl Build {
         let mut dirs = 0;
         let mut max_depth = 0;
         let mut ret = Vec::new();
+
         for line in input {
             let line = line?;
             let file_path = line.trim();
@@ -268,18 +270,12 @@ impl Build {
             let depth = file_path.split('/').count();
             max_depth = max_depth.max(depth);
 
-            let mut path = PathBuf::from(file_path);
-            if !filter(&path) {
+            let path = PathBuf::from(file_path);
+            if is_ignore_dir(&path) {
                 continue;
             }
-
-            if path.is_relative() {
-                path = cwd.as_ref().join(path);
-            } else {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "absolute path is not supported",
-                ));
+            if path.is_absolute() {
+                return Err(anyhow!("absolute path is not supported"));
             }
 
             if is_dir {
@@ -290,6 +286,7 @@ impl Build {
                 ret.push(FileEntry::new_file(&path, depth));
             }
         }
+        ret.push(FileEntry::new_dir(PathBuf::from("."), 0));
 
         Ok((max_depth, ret, files, dirs))
     }
