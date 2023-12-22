@@ -59,7 +59,7 @@ impl PrintTreeCommand {
             Some(ref object_id) => object_id.clone(),
             None => {
                 let head = fs::read_to_string(ref_head_name())?;
-                ObjectID::from_hex(&head)?
+                ObjectID::from_hex(&head).unwrap()
             }
         };
         let object_type = self.r#type.as_ref();

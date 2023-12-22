@@ -1,7 +1,43 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::{fs, io};
+use std::{fmt, fs, io};
+use std::num::ParseIntError;
+
+#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+pub struct Hash {
+    xxh3: u64,
+}
+
+impl Hash {
+    pub fn new(xxh3: u64) -> Self {
+        Hash { xxh3 }
+    }
+
+    pub fn from_contents<T: AsRef<[u8]>>(contents: T) -> Self {
+        Hash::new(xxh3_contents(contents))
+    }
+
+    pub fn from_hex<S: AsRef<str>>(hex: S) -> Result<Self, ParseIntError> {
+        let hex = hex.as_ref();
+        let xxh3 = u64::from_str_radix(hex, 16)?;
+        Ok(Hash::new(xxh3))
+    }
+}
+
+impl fmt::Display for Hash {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{:x}", self.xxh3)
+    }
+}
+
+pub fn xxh3_contents<T: AsRef<[u8]>>(contents: T) -> u64 {
+    xxhash_rust::xxh3::xxh3_64(contents.as_ref())
+}
+
+pub fn xxh64_contents<T: AsRef<[u8]>>(contents: T) -> u64 {
+    xxhash_rust::xxh64::xxh64(contents.as_ref(), 0)
+}
 
 pub fn md5_contents<T: AsRef<[u8]>>(contents: T) -> [u8; 16] {
     let mut context = md5::Context::new();
@@ -73,6 +109,15 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_file(&self.path).unwrap();
         }
+    }
+
+    #[test]
+    fn test_xxh3_contents() {
+        let contents = "hello world";
+
+        let expected: String = "d447b1ea40e6988b".into();
+        let actual = super::xxh3_contents(contents);
+        assert_eq!(expected, format!("{:x}", actual));
     }
 
     #[test]

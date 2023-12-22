@@ -27,6 +27,7 @@ thiserror = "1.0.51"
 tikv-jemallocator = { version = "0.5.4", optional = true }
 tokio = { version = "1.35.0", features = ["rt-multi-thread", "fs", "macros"] }
 uuid = { version = "1.6.1", features = ["v4"] }
+xxhash-rust = { version = "0.8.8", features = ["xxh64", "xxh3"] }
 
 [dev-dependencies]
 criterion = "0.5.1"
@@ -44,4 +45,8 @@ path = "src/lib.rs"
 
 [[bench]]
 name = "md5"
+harness = false
+
+[[bench]]
+name = "xxhash"
 harness = false

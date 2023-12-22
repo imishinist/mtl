@@ -11,13 +11,15 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::num::ParseIntError;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::ValueEnum;
 
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
+use crate::hash::Hash;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -52,49 +54,26 @@ impl FromStr for ObjectType {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ObjectID {
-    inner: [u8; 16],
+    inner: Hash,
 }
 
 impl ObjectID {
-    pub fn new(inner: [u8; 16]) -> Self {
-        ObjectID { inner }
+    pub fn new(hash: Hash) -> Self {
+        ObjectID { inner: hash }
     }
 
-    pub fn from_hex<S: AsRef<str>>(hex: S) -> io::Result<Self> {
-        let hex = hex.as_ref();
-        if hex.len() != 32 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Invalid hex length: {}", hex.len()),
-            ));
-        }
-
-        let mut buf = [0; 16];
-        for i in (0..32).step_by(2) {
-            buf[i / 2] = u8::from_str_radix(&hex[i..i + 2], 16).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid hex: {}", e))
-            })?;
-        }
-
-        Ok(ObjectID::new(buf))
+    pub fn from_hex<S: AsRef<str>>(hex: S) -> Result<Self, ParseIntError> {
+        Ok(ObjectID::new(Hash::from_hex(hex)?))
     }
 
     pub fn from_contents<T: AsRef<[u8]>>(contents: T) -> Self {
-        ObjectID::new(hash::md5_contents(contents))
-    }
-
-    pub fn from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let md5 = hash::md5_file_partial(path, 1024 * 1024)?;
-        Ok(ObjectID::new(md5))
+        ObjectID::new(Hash::from_contents(contents))
     }
 }
 
 impl fmt::Display for ObjectID {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        for byte in self.inner.iter() {
-            write!(f, "{:02x}", byte)?;
-        }
-        Ok(())
+        self.inner.fmt(f)
     }
 }
 
@@ -272,44 +251,40 @@ mod tests {
 
     #[test]
     fn test_object_id_from_hex() {
+        let hash = Hash::from_hex("d447b1ea40e6988b").unwrap();
         assert_eq!(
-            ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap(),
-            ObjectID::new([
-                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, //
-                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef
-            ])
+            ObjectID::from_hex("d447b1ea40e6988b").unwrap(),
+            ObjectID::new(hash)
         );
-        assert!(ObjectID::from_hex("0123456789abcdef0123456789abcde").is_err());
-        assert!(ObjectID::from_hex("0123456789abcdef0123456789abcdeg").is_err());
     }
 
     #[test]
     fn test_object_id_from_contents() {
         assert_eq!(
             ObjectID::from_contents("hello world"),
-            ObjectID::from_hex("5eb63bbbe01eeed093cb22bb8f5acdc3").unwrap()
+            ObjectID::from_hex("d447b1ea40e6988b").unwrap()
         );
     }
 
     #[test]
     fn test_object_dir_name() {
         assert_eq!(
-            object_dir_name(&ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap()),
-            Path::new(".mtl/objects/01")
+            object_dir_name(&ObjectID::from_hex("d447b1ea40e6988b").unwrap()),
+            Path::new(".mtl/objects/d4")
         );
     }
 
     #[test]
     fn test_object_file_name() {
         assert_eq!(
-            object_file_name(&ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap()),
-            Path::new(".mtl/objects/01/23456789abcdef0123456789abcdef")
+            object_file_name(&ObjectID::from_hex("d447b1ea40e6988b").unwrap()),
+            Path::new(".mtl/objects/d4/47b1ea40e6988b")
         );
     }
 
     #[test]
     fn test_object_order() {
-        let object_id = ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap();
+        let object_id = ObjectID::from_hex("d447b1ea40e6988b").unwrap();
         let mut objects = vec![
             Object::new(ObjectType::File, object_id.clone(), PathBuf::from("c")),
             Object::new(ObjectType::File, object_id.clone(), PathBuf::from("d")),
