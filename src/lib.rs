@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::ValueEnum;
@@ -52,39 +52,40 @@ impl FromStr for ObjectType {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ObjectID {
-    inner: [u8; 32],
+    inner: [u8; 16],
 }
 
 impl ObjectID {
-    pub fn new(inner: [u8; 32]) -> Self {
+    pub fn new(inner: [u8; 16]) -> Self {
         ObjectID { inner }
     }
 
     pub fn from_hex<S: AsRef<str>>(hex: S) -> io::Result<Self> {
         let hex = hex.as_ref();
-        if hex.len() != 64 {
+        if hex.len() != 32 {
             return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!("{} is not a valid hex string", hex),
+                io::ErrorKind::InvalidData,
+                format!("Invalid hex length: {}", hex.len()),
             ));
         }
 
-        let mut inner = [0; 32];
-        for i in 0..32 {
-            let byte = u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).map_err(|e| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("{} is not a valid hex string: {}", hex, e),
-                )
+        let mut buf = [0; 16];
+        for i in (0..32).step_by(2) {
+            buf[i / 2] = u8::from_str_radix(&hex[i..i + 2], 16).map_err(|e| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid hex: {}", e))
             })?;
-            inner[i] = byte;
         }
 
-        Ok(ObjectID::new(inner))
+        Ok(ObjectID::new(buf))
     }
 
     pub fn from_contents<T: AsRef<[u8]>>(contents: T) -> Self {
-        ObjectID::new(hash::sha256_contents(contents))
+        ObjectID::new(hash::md5_contents(contents))
+    }
+
+    pub fn from_file<P: AsRef<Path>>(path: P) -> io::Result<Self> {
+        let md5 = hash::md5_file_partial(path, 1024 * 1024)?;
+        Ok(ObjectID::new(md5))
     }
 }
 
@@ -272,35 +273,28 @@ mod tests {
     #[test]
     fn test_object_id_from_hex() {
         assert_eq!(
-            ObjectID::from_hex("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
-                .unwrap(),
+            ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap(),
             ObjectID::new([
-                0xb9, 0x4d, 0x27, 0xb9, 0x93, 0x4d, 0x3e, 0x08, 0xa5, 0x2e, 0x52, 0xd7, 0xda, 0x7d,
-                0xab, 0xfa, 0xc4, 0x84, 0xef, 0xe3, 0x7a, 0x53, 0x80, 0xee, 0x90, 0x88, 0xf7, 0xac,
-                0xe2, 0xef, 0xcd, 0xe9
+                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, //
+                0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef
             ])
         );
-        assert!(ObjectID::from_hex("tiny").is_err());
+        assert!(ObjectID::from_hex("0123456789abcdef0123456789abcde").is_err());
+        assert!(ObjectID::from_hex("0123456789abcdef0123456789abcdeg").is_err());
     }
 
     #[test]
     fn test_object_id_from_contents() {
         assert_eq!(
             ObjectID::from_contents("hello world"),
-            ObjectID::from_hex("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9")
-                .unwrap()
+            ObjectID::from_hex("5eb63bbbe01eeed093cb22bb8f5acdc3").unwrap()
         );
     }
 
     #[test]
     fn test_object_dir_name() {
         assert_eq!(
-            object_dir_name(
-                &ObjectID::from_hex(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                )
-                .unwrap()
-            ),
+            object_dir_name(&ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap()),
             Path::new(".mtl/objects/01")
         );
     }
@@ -308,23 +302,14 @@ mod tests {
     #[test]
     fn test_object_file_name() {
         assert_eq!(
-            object_file_name(
-                &ObjectID::from_hex(
-                    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-                )
-                .unwrap()
-            ),
-            Path::new(
-                ".mtl/objects/01/23456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            )
+            object_file_name(&ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap()),
+            Path::new(".mtl/objects/01/23456789abcdef0123456789abcdef")
         );
     }
 
     #[test]
     fn test_object_order() {
-        let object_id =
-            ObjectID::from_hex("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-                .unwrap();
+        let object_id = ObjectID::from_hex("0123456789abcdef0123456789abcdef").unwrap();
         let mut objects = vec![
             Object::new(ObjectType::File, object_id.clone(), PathBuf::from("c")),
             Object::new(ObjectType::File, object_id.clone(), PathBuf::from("d")),

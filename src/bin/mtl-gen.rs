@@ -8,11 +8,11 @@ use rayon::prelude::*;
 use sha1::Digest;
 
 struct Hash {
-    inner: [u8; 32],
+    inner: [u8; 20],
 }
 
-impl From<[u8; 32]> for Hash {
-    fn from(inner: [u8; 32]) -> Self {
+impl From<[u8; 20]> for Hash {
+    fn from(inner: [u8; 20]) -> Self {
         Self { inner }
     }
 }
@@ -27,10 +27,10 @@ impl std::fmt::Display for Hash {
 }
 
 fn hash_content(content: &[u8]) -> std::io::Result<Hash> {
-    let mut hasher = sha2::Sha256::new();
+    let mut hasher = sha1::Sha1::new();
     hasher.write(content)?;
-    let inner = hasher.finalize().into();
-    Ok(Hash { inner })
+    let sha1 = hasher.finalize().into();
+    Ok(Hash { inner: sha1 })
 }
 
 fn read_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Vec<String>> {
