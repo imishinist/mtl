@@ -12,8 +12,8 @@ build() {
   local param=$2
 
   echo
-  echo cargo build --bin mtl $param
-  cargo build --bin mtl $param
+  echo cargo build --release --bin mtl $param
+  cargo build --release --bin mtl $param
   cp target/release/mtl{,-$revision}
   echo "Generated to target/release/mtl-$revision"
   echo
