@@ -32,3 +32,15 @@ Please read the atmosphere from help for more information.
 $ cargo install --git https://github.com/imishinist/mtl
 ```
 
+## Performance check
+
+```bash
+$ ./tools/compare-performance.sh <dir> <revision> <revision> [hyperfine options] 
+```
+
+example
+
+```bash
+$ cargo run --bin mtl-gen -- /tmp/bench10000 10000 -p 1,2
+$ ./tools/compare-performance.sh /tmp/bench10000 HEAD HEAD^ '--warmup 3'
+```
