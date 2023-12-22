@@ -30,7 +30,7 @@ fi
 revision=$1
 params=${2:-""}
 hash=$(git rev-parse --short $revision)
-tmp_branch=$(head /dev/urandom | md5)
+tmp_branch=$(head /dev/urandom | openssl dgst -sha1 --binary | xxd -p)
 
 
 echo "Building revision $revision($hash)..."

@@ -23,8 +23,7 @@ fn md5_file(c: &mut Criterion) {
     });
 }
 
-// criterion_group!(md5, md5_contents, md5_file);
-criterion_group!(md5, md5_file);
+criterion_group!(md5, md5_contents, md5_file);
 // criterion_main!(md5);
 
 fn main() {
