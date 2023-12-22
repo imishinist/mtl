@@ -50,6 +50,7 @@ mod tests {
     use std::io::Write;
     use std::path::{Path, PathBuf};
     use std::{fs, io};
+    use tempfile::tempdir;
 
     struct TempFile {
         path: PathBuf,
@@ -86,30 +87,37 @@ mod tests {
     #[test]
     fn test_md5_file() {
         let contents = "Hello, world!";
-        let file = PathBuf::from("/tmp/test_md5_file");
-        let mut temp_file = TempFile::open(&file).unwrap();
-        temp_file.write(contents).unwrap();
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.txt");
+        let mut file = TempFile::open(&file_path).unwrap();
+        file.write(contents).unwrap();
 
         let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_file(&file).unwrap());
+        let actual = super::md5_string(super::md5_file(&file_path).unwrap());
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn test_md5_file_partial() {
         let contents = "Hello, world!";
-        let file = PathBuf::from("/tmp/test_md5_file_partial");
-        let mut temp_file = TempFile::open(&file).unwrap();
-        temp_file.write(contents).unwrap();
+
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.txt");
+        let mut file = TempFile::open(&file_path).unwrap();
+        file.write(contents).unwrap();
 
         let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_file_partial(&file, 65536).unwrap());
+        let actual = super::md5_string(super::md5_file_partial(&file_path, 65536).unwrap());
         assert_eq!(expected, actual);
     }
 
     #[test]
     fn compare_md5_file() {
         let file = PathBuf::from("/usr/share/dict/words");
+        if !file.exists() {
+            return;
+        }
 
         let expected = super::md5_file(&file).unwrap();
         let actual = super::md5_file_partial(&file, 65536).unwrap();
