@@ -240,6 +240,30 @@ pub struct Build {
 }
 
 impl Build {
+    fn setup_progress_bar(num_files: u64, num_dirs: u64) -> (ProgressBar, ProgressBar) {
+        let style = ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:50.cyan/blue} {pos:>7}/{len:7} {msg}",
+        )
+        .unwrap()
+        .progress_chars("##-");
+
+        let m = MultiProgress::new();
+        let pb_files = {
+            let pb = m.add(ProgressBar::new(num_files));
+            pb.set_style(style.clone());
+            pb.set_message("files");
+            pb
+        };
+        let pb_dirs = {
+            let pb = m.add(ProgressBar::new(num_dirs));
+            pb.set_style(style.clone());
+            pb.set_message("dirs");
+            pb
+        };
+
+        (pb_files, pb_dirs)
+    }
+
     pub fn run(&self) -> io::Result<()> {
         let dir = self
             .dir
@@ -249,25 +273,11 @@ impl Build {
         log::info!("dir: {}", dir.display());
 
         let ctx = Context::new(&dir);
-
         let (max_depth, files, num_files, num_dirs) =
             self.target_files(&ctx).expect("failed to list all files");
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
 
-        let m = MultiProgress::new();
-        let sty = ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7} {msg}",
-        )
-        .unwrap()
-        .progress_chars("##-");
-
-        let pb_files = m.add(ProgressBar::new(num_files));
-        pb_files.set_style(sty.clone());
-        pb_files.set_message("files");
-        let pb_dirs = m.add(ProgressBar::new(num_dirs));
-        pb_dirs.set_style(sty.clone());
-        pb_dirs.set_message("dirs");
-
+        let (pb_files, pb_dirs) = Self::setup_progress_bar(num_files, num_dirs);
         let object = parallel_walk(&ctx, &pb_files, &pb_dirs, files, max_depth, HashMap::new())?;
         pb_files.finish_and_clear();
         pb_dirs.finish_and_clear();
