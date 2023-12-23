@@ -12,14 +12,14 @@ use std::fmt;
 use std::fs;
 use std::io;
 use std::num::ParseIntError;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::ValueEnum;
 
+use crate::hash::Hash;
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
-use crate::hash::Hash;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -140,35 +140,99 @@ impl Ord for Object {
 
 const MTL_DIR: &str = ".mtl";
 
-fn object_dir_name(object_id: &ObjectID) -> PathBuf {
-    let object_id = object_id.to_string();
-
-    let mut dir_name = PathBuf::new();
-    dir_name.push(MTL_DIR);
-    dir_name.push("objects");
-    dir_name.push(&object_id[0..2]);
-
-    dir_name
+#[derive(Debug)]
+pub struct Context {
+    // root of the repository
+    root_dir: PathBuf,
 }
 
-fn object_file_name(object_id: &ObjectID) -> PathBuf {
-    let object_id = object_id.to_string();
+impl Context {
+    pub fn new<P: Into<PathBuf>>(root_dir: P) -> Self {
+        Context {
+            root_dir: root_dir.into(),
+        }
+    }
 
-    let mut file_name = PathBuf::new();
-    file_name.push(MTL_DIR);
-    file_name.push("objects");
-    file_name.push(&object_id[0..2]);
-    file_name.push(&object_id[2..]);
+    pub fn root_dir(&self) -> &Path {
+        &self.root_dir
+    }
 
-    file_name
-}
+    pub fn object_dir(&self, object_id: &ObjectID) -> PathBuf {
+        let dir_name = self.root_dir.as_path();
+        dir_name
+            .join(MTL_DIR)
+            .join("objects")
+            .join(&object_id.to_string()[0..2])
+    }
 
-fn ref_head_name() -> PathBuf {
-    let mut head_name = PathBuf::new();
-    head_name.push(MTL_DIR);
-    head_name.push("HEAD");
+    pub fn object_file(&self, object_id: &ObjectID) -> PathBuf {
+        let object_string = object_id.to_string();
 
-    head_name
+        let file_name = self.root_dir.as_path();
+        file_name
+            .join(MTL_DIR)
+            .join("objects")
+            .join(&object_string[0..2])
+            .join(&object_string[2..])
+    }
+
+    pub fn head_file(&self) -> PathBuf {
+        let head_name = self.root_dir.as_path();
+        head_name.join(MTL_DIR).join("HEAD")
+    }
+
+    pub fn write_tree_contents<T: AsRef<Object>>(&self, entries: &[T]) -> io::Result<ObjectID> {
+        let tree_contents = serialize_entries(&entries)?;
+        let object_id = ObjectID::from_contents(&tree_contents);
+
+        let dir_name = self.object_dir(&object_id);
+        let file_name = self.object_file(&object_id);
+
+        fs::create_dir_all(&dir_name)?;
+        fs::write(&file_name, tree_contents)?;
+
+        Ok(object_id)
+    }
+
+    pub fn read_tree_contents(&self, object_id: &ObjectID) -> Result<Vec<Object>, ParseError> {
+        let file_name = self.object_file(object_id);
+        let tree_contents = fs::read_to_string(file_name)?;
+
+        let mut objects = Vec::new();
+        for line in tree_contents.lines() {
+            let mut parts = line.split('\t');
+            let object_type: ObjectType = parts
+                .next()
+                .ok_or(ParseError::InvalidFormat)?
+                .parse()
+                .map_err(ParseError::InvalidToken)?;
+            let object_id: ObjectID = parts
+                .next()
+                .ok_or(ParseError::InvalidFormat)?
+                .parse()
+                .map_err(ParseError::InvalidToken)?;
+            let file_name = PathBuf::from(parts.next().ok_or(ParseError::InvalidFormat)?);
+
+            objects.push(Object::new(object_type, object_id, file_name));
+        }
+
+        Ok(objects)
+    }
+
+    pub fn write_head(&self, object_id: &ObjectID) -> io::Result<()> {
+        let head_name = self.head_file();
+        fs::write(head_name, object_id.to_string())?;
+
+        Ok(())
+    }
+
+    pub fn read_head(&self) -> io::Result<ObjectID> {
+        let head = fs::read_to_string(self.head_file())?;
+        let head = head.trim();
+
+        head.parse()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    }
 }
 
 // serialize entries should be called with sorted entries
@@ -184,51 +248,6 @@ fn serialize_entries<T: AsRef<Object>>(entries: &[T]) -> io::Result<Vec<u8>> {
     }
 
     Ok(buf)
-}
-
-pub fn write_tree_contents<T: AsRef<Object>>(entries: &[T]) -> io::Result<ObjectID> {
-    let tree_contents = serialize_entries(&entries)?;
-    let object_id = ObjectID::from_contents(&tree_contents);
-
-    let dir_name = object_dir_name(&object_id);
-    let file_name = object_file_name(&object_id);
-
-    fs::create_dir_all(&dir_name)?;
-    fs::write(&file_name, tree_contents)?;
-
-    Ok(object_id)
-}
-
-pub fn write_head(object_id: &ObjectID) -> io::Result<()> {
-    let head_name = ref_head_name();
-    fs::write(head_name, object_id.to_string())?;
-
-    Ok(())
-}
-
-fn read_tree_contents(object_id: &ObjectID) -> Result<Vec<Object>, ParseError> {
-    let file_name = object_file_name(object_id);
-    let tree_contents = fs::read_to_string(file_name)?;
-
-    let mut objects = Vec::new();
-    for line in tree_contents.lines() {
-        let mut parts = line.split('\t');
-        let object_type: ObjectType = parts
-            .next()
-            .ok_or(ParseError::InvalidFormat)?
-            .parse()
-            .map_err(ParseError::InvalidToken)?;
-        let object_id: ObjectID = parts
-            .next()
-            .ok_or(ParseError::InvalidFormat)?
-            .parse()
-            .map_err(ParseError::InvalidToken)?;
-        let file_name = PathBuf::from(parts.next().ok_or(ParseError::InvalidFormat)?);
-
-        objects.push(Object::new(object_type, object_id, file_name));
-    }
-
-    Ok(objects)
 }
 
 #[cfg(test)]
@@ -250,16 +269,12 @@ mod tests {
     }
 
     #[test]
-    fn test_object_id_from_hex() {
-        let hash = Hash::from_hex("d447b1ea40e6988b").unwrap();
+    fn test_object_id() {
         assert_eq!(
             ObjectID::from_hex("d447b1ea40e6988b").unwrap(),
-            ObjectID::new(hash)
+            ObjectID::new(Hash::from_hex("d447b1ea40e6988b").unwrap())
         );
-    }
 
-    #[test]
-    fn test_object_id_from_contents() {
         assert_eq!(
             ObjectID::from_contents("hello world"),
             ObjectID::from_hex("d447b1ea40e6988b").unwrap()
@@ -267,19 +282,18 @@ mod tests {
     }
 
     #[test]
-    fn test_object_dir_name() {
+    fn test_context() {
+        let ctx = Context::new("/tmp");
+        assert_eq!(ctx.root_dir(), Path::new("/tmp"));
         assert_eq!(
-            object_dir_name(&ObjectID::from_hex("d447b1ea40e6988b").unwrap()),
-            Path::new(".mtl/objects/d4")
+            ctx.object_dir(&ObjectID::from_hex("d447b1ea40e6988b").unwrap()),
+            Path::new("/tmp/.mtl/objects/d4")
         );
-    }
-
-    #[test]
-    fn test_object_file_name() {
         assert_eq!(
-            object_file_name(&ObjectID::from_hex("d447b1ea40e6988b").unwrap()),
-            Path::new(".mtl/objects/d4/47b1ea40e6988b")
+            ctx.object_file(&ObjectID::from_hex("d447b1ea40e6988b").unwrap()),
+            Path::new("/tmp/.mtl/objects/d4/47b1ea40e6988b")
         );
+        assert_eq!(ctx.head_file(), Path::new("/tmp/.mtl/HEAD"));
     }
 
     #[test]

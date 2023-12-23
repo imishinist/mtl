@@ -14,9 +14,7 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use rayon::prelude::*;
 
-use crate::{
-    strip_current_dir, write_head, write_tree_contents, Object, ObjectID, ObjectType, MTL_DIR,
-};
+use crate::{Context, Object, ObjectID, ObjectType, MTL_DIR};
 
 #[derive(Debug)]
 struct FileEntry {
@@ -43,7 +41,10 @@ impl FileEntry {
     }
 }
 
-fn list_all_files(hidden: bool) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
+fn list_all_files(
+    ctx: &Context,
+    hidden: bool,
+) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
     let num_cpu = 4;
 
     let (tx, rx) = crossbeam_channel::bounded::<FileEntry>(100);
@@ -64,7 +65,11 @@ fn list_all_files(hidden: bool) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u
         (max_depth, result, files, dirs)
     });
 
-    let walker = WalkBuilder::new(".").hidden(hidden).threads(num_cpu).build_parallel();
+    let root_dir = ctx.root_dir();
+    let walker = WalkBuilder::new(&root_dir)
+        .hidden(hidden)
+        .threads(num_cpu)
+        .build_parallel();
     walker.run(|| {
         let tx = tx.clone();
         Box::new(move |entry| {
@@ -84,7 +89,7 @@ fn list_all_files(hidden: bool) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u
                 }
             };
 
-            let path = strip_current_dir(entry.path());
+            let path = entry.path().strip_prefix(root_dir).unwrap();
             if is_ignore_dir(&path) {
                 return WalkState::Continue;
             }
@@ -125,6 +130,7 @@ fn is_ignore_dir(path: &Path) -> bool {
 }
 
 fn process_tree_content(
+    ctx: &Context,
     map: &HashMap<PathBuf, Vec<Object>>,
     entry: &FileEntry,
 ) -> io::Result<Option<Object>> {
@@ -137,12 +143,13 @@ fn process_tree_content(
         io::ErrorKind::NotFound,
         "failed to get file_name",
     ))?);
-    let object_id = write_tree_contents(&objects)?;
+    let object_id = ctx.write_tree_contents(&objects)?;
     Ok(Some(Object::new_tree(object_id, file_name)))
 }
 
-fn process_file_content(entry: &FileEntry) -> io::Result<Object> {
-    let contents = fs::read(&entry.path)?;
+fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> {
+    let path = ctx.root_dir().join(&entry.path);
+    let contents = fs::read(path)?;
     let object_id = ObjectID::from_contents(&contents);
     let file_name = PathBuf::from(entry.path.file_name().ok_or(io::Error::new(
         io::ErrorKind::NotFound,
@@ -153,6 +160,7 @@ fn process_file_content(entry: &FileEntry) -> io::Result<Object> {
 }
 
 fn parallel_walk(
+    ctx: &Context,
     pb_files: &ProgressBar,
     pb_dirs: &ProgressBar,
     files: Vec<FileEntry>,
@@ -169,7 +177,7 @@ fn parallel_walk(
             .clone();
         objects.par_sort_unstable();
 
-        let object_id = write_tree_contents(&objects)?;
+        let object_id = ctx.write_tree_contents(&objects)?;
 
         let (file, dir) = objects.iter().partition::<Vec<_>, _>(|o| o.is_file());
         pb_files.inc(file.len() as u64);
@@ -189,14 +197,14 @@ fn parallel_walk(
                 let object = match entry.mode {
                     ObjectType::Tree => {
                         pb_dirs.inc(1);
-                        match process_tree_content(&map, &entry).unwrap() {
+                        match process_tree_content(ctx, &map, &entry).unwrap() {
                             Some(object) => object,
                             None => return m,
                         }
                     }
                     ObjectType::File => {
                         pb_files.inc(1);
-                        process_file_content(&entry).unwrap()
+                        process_file_content(ctx, &entry).unwrap()
                     }
                 };
 
@@ -207,14 +215,14 @@ fn parallel_walk(
             },
         )
         .reduce(HashMap::new, merge_hashmap);
-    parallel_walk(pb_files, pb_dirs, rest, depth - 1, new_map)
+    parallel_walk(ctx, pb_files, pb_dirs, rest, depth - 1, new_map)
 }
 
 #[derive(Args, Debug)]
 pub struct Build {
     /// Working directory.
     #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
-    cwd: Option<OsString>,
+    dir: Option<PathBuf>,
 
     /// The input file containing a list of files to be scanned.
     /// By default, it scans all files in the current directory.
@@ -233,15 +241,17 @@ pub struct Build {
 
 impl Build {
     pub fn run(&self) -> io::Result<()> {
-        let cwd = match &self.cwd {
-            Some(cwd) => cwd.clone(),
-            None => env::current_dir()?.into_os_string(),
-        };
-        env::set_current_dir(&cwd)?;
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
 
-        log::info!("cwd: {:?}", cwd);
+        let ctx = Context::new(&dir);
+
         let (max_depth, files, num_files, num_dirs) =
-            self.target_files().expect("failed to list all files");
+            self.target_files(&ctx).expect("failed to list all files");
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
 
         let m = MultiProgress::new();
@@ -258,22 +268,22 @@ impl Build {
         pb_dirs.set_style(sty.clone());
         pb_dirs.set_message("dirs");
 
-        let object = parallel_walk(&pb_files, &pb_dirs, files, max_depth, HashMap::new())?;
+        let object = parallel_walk(&ctx, &pb_files, &pb_dirs, files, max_depth, HashMap::new())?;
         pb_files.finish_and_clear();
         pb_dirs.finish_and_clear();
 
         if self.no_write_head {
             println!("HEAD: {}", object.object_id);
         } else {
-            write_head(&object.object_id)?;
+            ctx.write_head(&object.object_id)?;
             println!("Written HEAD: {}", object.object_id);
         }
         Ok(())
     }
 
-    fn target_files(&self) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
+    fn target_files(&self, ctx: &Context) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
         let Some(input) = &self.input else {
-            return list_all_files(self.hidden);
+            return list_all_files(&ctx, self.hidden);
         };
         let input = input.as_os_str();
 
@@ -326,7 +336,7 @@ impl Build {
 pub struct List {
     /// Working directory.
     #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
-    cwd: Option<OsString>,
+    dir: Option<PathBuf>,
 }
 
 fn format_filetype(mode: &fs::FileType) -> &'static str {
@@ -351,13 +361,16 @@ fn format_filetype(mode: &fs::FileType) -> &'static str {
 
 impl List {
     pub fn run(&self) -> io::Result<()> {
-        let cwd = match &self.cwd {
-            Some(cwd) => cwd.clone(),
-            None => env::current_dir()?.into_os_string(),
-        };
-        env::set_current_dir(&cwd)?;
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
 
-        let (max_depth, files, _, _) = list_all_files(false).expect("failed to list all files");
+        let ctx = Context::new(&dir);
+        let (max_depth, files, _, _) =
+            list_all_files(&ctx, false).expect("failed to list all files");
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
         for file in files {
             if file.path == PathBuf::from("") {

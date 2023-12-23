@@ -6,7 +6,7 @@ use std::{env, fs, io};
 
 use clap::{Args, Subcommand};
 
-use crate::{read_tree_contents, ref_head_name, ObjectID, ObjectType};
+use crate::{Context, ObjectID, ObjectType};
 
 #[derive(Subcommand)]
 pub enum LocalCommand {
@@ -33,20 +33,22 @@ pub struct CatObjectCommand {
     dir: Option<PathBuf>,
 
     /// Object ID to print
+    #[clap(value_name = "object-id")]
     object_id: ObjectID,
 }
 
 impl CatObjectCommand {
     pub fn run(&self) -> io::Result<()> {
-        let _dir = match self.dir {
-            Some(ref dir) => {
-                env::set_current_dir(dir)?;
-                dir.clone()
-            }
-            None => env::current_dir()?,
-        };
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
 
-        let file_name = crate::object_file_name(&self.object_id);
+        let ctx = Context::new(&dir);
+
+        let file_name = ctx.object_file(&self.object_id);
         let contents = fs::read_to_string(file_name)?;
         print!("{}", contents);
 
@@ -75,41 +77,39 @@ pub struct PrintTreeCommand {
 
 impl PrintTreeCommand {
     pub fn run(&self) -> io::Result<()> {
-        let _dir = match self.dir {
-            Some(ref dir) => {
-                env::set_current_dir(dir)?;
-                dir.clone()
-            }
-            None => env::current_dir()?,
-        };
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
+        let ctx = Context::new(&dir);
 
         let object_id = match self.root {
             Some(ref object_id) => object_id.clone(),
-            None => {
-                let head = fs::read_to_string(ref_head_name())?;
-                ObjectID::from_hex(&head).unwrap()
-            }
+            None => ctx.read_head()?,
         };
         let object_type = self.r#type.as_ref();
 
         println!("tree {}\t.", object_id);
-        Self::print_tree("", &object_id, object_type, self.max_depth)?;
+        Self::print_tree(&ctx, &object_id, object_type, self.max_depth)?;
 
         Ok(())
     }
 
-    fn print_tree<P: Into<PathBuf>>(
-        parent: P,
+    fn print_tree(
+        ctx: &Context,
         object_id: &ObjectID,
         object_type: Option<&ObjectType>,
         max_depth: Option<usize>,
     ) -> io::Result<()> {
         let stdout = io::stdout();
         let mut stdout = BufWriter::new(stdout.lock());
-        Self::inner_print_tree(&mut stdout, parent, object_id, object_type, max_depth, 0)
+        Self::inner_print_tree(ctx, &mut stdout, "", object_id, object_type, max_depth, 0)
     }
 
     fn inner_print_tree<W: io::Write, P: Into<PathBuf>>(
+        ctx: &Context,
         stdout: &mut W,
         parent: P,
         object_id: &ObjectID,
@@ -124,7 +124,7 @@ impl PrintTreeCommand {
         }
 
         let parent = parent.into();
-        let objects = read_tree_contents(object_id).unwrap();
+        let objects = ctx.read_tree_contents(object_id).unwrap();
         for object in &objects {
             let file_name = parent.join(&object.file_name);
 
@@ -139,6 +139,7 @@ impl PrintTreeCommand {
                         )?;
                     }
                     Self::inner_print_tree(
+                        ctx,
                         stdout,
                         &file_name,
                         &object.object_id,
