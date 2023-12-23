@@ -10,17 +10,17 @@ build index
 
 ```bash
 $ mtl local build
-Written HEAD: 4510a532ba4f0bef41590dafd234d5ac
+Written HEAD: 80bef6537f9c4f9d
 ```
 
 print tree
 
 ```bash
 $ mtl print-tree --type tree --max-depth 1
-tree 4510a532ba4f0bef41590dafd234d5ac   <root>
-tree 13019075d0da958d41d3715c437a6725   benches/
-tree 32a9b093ad70021c1af3a9f76a54dadd   src/
-tree baf3a3fec2c204a4c266ddc05ff37724   valgrind/
+tree 80bef6537f9c4f9d   .
+tree 757dfd8c7ed0c1b6   benches/
+tree d68f7fd0eec160a2   src/
+tree 47d8072d2b99a537   tools/
 ```
 
 Please read the atmosphere from help for more information.
