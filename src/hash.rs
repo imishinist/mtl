@@ -1,8 +1,8 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::num::ParseIntError;
 use std::path::Path;
 use std::{fmt, fs, io};
-use std::num::ParseIntError;
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq)]
 pub struct Hash {
@@ -27,7 +27,7 @@ impl Hash {
 
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:x}", self.xxh3)
+        write!(f, "{:016x}", self.xxh3)
     }
 }
 
