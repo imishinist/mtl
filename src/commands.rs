@@ -27,6 +27,34 @@ impl LocalCommand {
 }
 
 #[derive(Args, Debug)]
+pub struct CatObjectCommand {
+    /// Directory where to run the command
+    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
+    dir: Option<PathBuf>,
+
+    /// Object ID to print
+    object_id: ObjectID,
+}
+
+impl CatObjectCommand {
+    pub fn run(&self) -> io::Result<()> {
+        let _dir = match self.dir {
+            Some(ref dir) => {
+                env::set_current_dir(dir)?;
+                dir.clone()
+            }
+            None => env::current_dir()?,
+        };
+
+        let file_name = crate::object_file_name(&self.object_id);
+        let contents = fs::read_to_string(file_name)?;
+        print!("{}", contents);
+
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
 pub struct PrintTreeCommand {
     /// Directory where to run the command
     #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
