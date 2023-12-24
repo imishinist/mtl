@@ -2,9 +2,9 @@ pub mod local;
 
 use std::collections::HashMap;
 use std::io::BufWriter;
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::{env, fs, io};
-use std::os::unix::fs::MetadataExt;
 
 use clap::{Args, Subcommand};
 
@@ -188,7 +188,8 @@ impl GCCommand {
             .iter()
             .map(|x| (x.to_path_buf(), false))
             .collect::<HashMap<_, _>>();
-        self.mark_used_object(&ctx, &head_object, &mut objects).expect("mark_used_object");
+        self.mark_used_object(&ctx, &head_object, &mut objects)
+            .expect("mark_used_object");
 
         let mut deleted_objects = 0u64;
         let mut deleted_bytes = 0u64;
@@ -206,15 +207,26 @@ impl GCCommand {
             }
         }
         if self.dry_run {
-            println!("[dry-run] Deleted {} objects ({} bytes)", deleted_objects, deleted_bytes);
+            println!(
+                "[dry-run] Deleted {} objects ({} bytes)",
+                deleted_objects, deleted_bytes
+            );
         } else {
-            println!("Deleted {} objects ({} bytes)", deleted_objects, deleted_bytes);
+            println!(
+                "Deleted {} objects ({} bytes)",
+                deleted_objects, deleted_bytes
+            );
         }
 
         Ok(())
     }
 
-    pub fn mark_used_object(&self, ctx: &Context, root_object: &ObjectID, objects: &mut HashMap<PathBuf, bool>) -> Result<(), ParseError> {
+    pub fn mark_used_object(
+        &self,
+        ctx: &Context,
+        root_object: &ObjectID,
+        objects: &mut HashMap<PathBuf, bool>,
+    ) -> Result<(), ParseError> {
         let root_path = ctx.object_file(root_object);
         objects.insert(root_path, true);
 

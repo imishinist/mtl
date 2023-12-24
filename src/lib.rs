@@ -2,6 +2,7 @@ pub mod commands;
 pub mod error;
 pub(crate) mod filesystem;
 pub mod hash;
+pub(crate) mod progress;
 
 pub use commands::*;
 pub use error::*;
@@ -194,7 +195,10 @@ impl Context {
                     let path = entry.path();
 
                     if path.is_dir() {
-                        log::warn!("Unexpected directory in object directory: {}", path.display());
+                        log::warn!(
+                            "Unexpected directory in object directory: {}",
+                            path.display()
+                        );
                     }
                     if path.is_file() {
                         object_files.push(path);
