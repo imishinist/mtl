@@ -176,6 +176,36 @@ impl Context {
             .join(&object_string[2..])
     }
 
+    pub fn object_files(&self) -> io::Result<Vec<PathBuf>> {
+        let dir_name = self.root_dir.as_path();
+        let object_dir = dir_name.join(MTL_DIR).join("objects");
+
+        let mut object_files = Vec::new();
+        for entry in fs::read_dir(object_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_file() {
+                log::warn!("Unexpected file in object directory: {}", path.display());
+            }
+            if path.is_dir() {
+                for entry in fs::read_dir(path)? {
+                    let entry = entry?;
+                    let path = entry.path();
+
+                    if path.is_dir() {
+                        log::warn!("Unexpected directory in object directory: {}", path.display());
+                    }
+                    if path.is_file() {
+                        object_files.push(path);
+                    }
+                }
+            }
+        }
+
+        Ok(object_files)
+    }
+
     pub fn head_file(&self) -> PathBuf {
         let head_name = self.root_dir.as_path();
         head_name.join(MTL_DIR).join("HEAD")

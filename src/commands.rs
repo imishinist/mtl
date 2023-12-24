@@ -1,12 +1,14 @@
 pub mod local;
 
+use std::collections::HashMap;
 use std::io::BufWriter;
 use std::path::PathBuf;
 use std::{env, fs, io};
+use std::os::unix::fs::MetadataExt;
 
 use clap::{Args, Subcommand};
 
-use crate::{Context, ObjectID, ObjectType};
+use crate::{Context, ObjectID, ObjectType, ParseError};
 
 #[derive(Subcommand)]
 pub enum LocalCommand {
@@ -155,6 +157,77 @@ impl PrintTreeCommand {
                 }
             }
         }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct GCCommand {
+    /// Directory where to run the command
+    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
+    dir: Option<PathBuf>,
+
+    /// Dry run
+    #[clap(long = "dry", short = 'n', default_value_t = false)]
+    dry_run: bool,
+}
+
+impl GCCommand {
+    pub fn run(&self) -> io::Result<()> {
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
+        let ctx = Context::new(&dir);
+
+        let head_object = ctx.read_head()?;
+        let mut objects = ctx
+            .object_files()?
+            .iter()
+            .map(|x| (x.to_path_buf(), false))
+            .collect::<HashMap<_, _>>();
+        self.mark_used_object(&ctx, &head_object, &mut objects).expect("mark_used_object");
+
+        let mut deleted_objects = 0u64;
+        let mut deleted_bytes = 0u64;
+        for (path, used) in objects {
+            if !used {
+                let metadata = fs::metadata(&path)?;
+                deleted_objects += 1;
+                deleted_bytes += metadata.size();
+                if self.dry_run {
+                    println!("[dry-run] Removing {}", path.display());
+                } else {
+                    println!("Removing {}", path.display());
+                    fs::remove_file(path)?;
+                }
+            }
+        }
+        if self.dry_run {
+            println!("[dry-run] Deleted {} objects ({} bytes)", deleted_objects, deleted_bytes);
+        } else {
+            println!("Deleted {} objects ({} bytes)", deleted_objects, deleted_bytes);
+        }
+
+        Ok(())
+    }
+
+    pub fn mark_used_object(&self, ctx: &Context, root_object: &ObjectID, objects: &mut HashMap<PathBuf, bool>) -> Result<(), ParseError> {
+        let root_path = ctx.object_file(root_object);
+        objects.insert(root_path, true);
+
+        let tree = ctx.read_tree_contents(root_object)?;
+        for object in tree {
+            if object.is_tree() {
+                let object_path = ctx.object_file(&object.object_id);
+
+                objects.insert(object_path, true);
+                self.mark_used_object(ctx, &object.object_id, objects)?;
+            }
+        }
+
         Ok(())
     }
 }
