@@ -21,8 +21,13 @@ readonly hash_b=$(git rev-parse --short $revision_b)
 echo "Comparing $revision_a($hash_a) and $revision_b($hash_b)"
 echo
 
+echo "Building $revision_a($hash_a)"
 path_a=$(./tools/build-by-revision.sh $revision_a 2>/dev/null | grep "Generated" | cut -d" " -f3)
+
+echo "Building $revision_b($hash_b)"
 path_b=$(./tools/build-by-revision.sh $revision_b 2>/dev/null | grep "Generated" | cut -d" " -f3)
+
+echo "Compare $path_a and $path_b"
 
 diff -u \
   <($(pwd)/$path_a local build) \

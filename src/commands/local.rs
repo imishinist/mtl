@@ -10,10 +10,10 @@ use std::{env, fs, io};
 use anyhow::anyhow;
 use clap::Args;
 use ignore::{WalkBuilder, WalkState};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use itertools::Itertools;
 use rayon::prelude::*;
 
+use crate::progress::BuildProgressBar;
 use crate::{Context, Object, ObjectID, ObjectType, MTL_DIR};
 
 #[derive(Debug)]
@@ -161,8 +161,7 @@ fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> 
 
 fn parallel_walk(
     ctx: &Context,
-    pb_files: &ProgressBar,
-    pb_dirs: &ProgressBar,
+    pb: &BuildProgressBar,
     files: Vec<FileEntry>,
     depth: usize,
     map: HashMap<PathBuf, Vec<Object>>,
@@ -180,8 +179,8 @@ fn parallel_walk(
         let object_id = ctx.write_tree_contents(&objects)?;
 
         let (file, dir) = objects.iter().partition::<Vec<_>, _>(|o| o.is_file());
-        pb_files.inc(file.len() as u64);
-        pb_dirs.inc(dir.len() as u64);
+        pb.inc_file(file.len() as u64);
+        pb.inc_dir(dir.len() as u64);
 
         return Ok(Object::new_tree(object_id, path));
     }
@@ -196,14 +195,14 @@ fn parallel_walk(
             |mut m: HashMap<PathBuf, Vec<Object>>, entry| {
                 let object = match entry.mode {
                     ObjectType::Tree => {
-                        pb_dirs.inc(1);
+                        pb.inc_dir(1);
                         match process_tree_content(ctx, &map, &entry).unwrap() {
                             Some(object) => object,
                             None => return m,
                         }
                     }
                     ObjectType::File => {
-                        pb_files.inc(1);
+                        pb.inc_file(1);
                         process_file_content(ctx, &entry).unwrap()
                     }
                 };
@@ -215,7 +214,7 @@ fn parallel_walk(
             },
         )
         .reduce(HashMap::new, merge_hashmap);
-    parallel_walk(ctx, pb_files, pb_dirs, rest, depth - 1, new_map)
+    parallel_walk(ctx, pb, rest, depth - 1, new_map)
 }
 
 #[derive(Args, Debug)]
@@ -237,33 +236,13 @@ pub struct Build {
     /// If true, scan hidden files.
     #[clap(long, default_value_t = false, verbatim_doc_comment)]
     hidden: bool,
+
+    /// If true, show progress bar.
+    #[clap(long, default_value_t = false, verbatim_doc_comment)]
+    progress: bool,
 }
 
 impl Build {
-    fn setup_progress_bar(num_files: u64, num_dirs: u64) -> (ProgressBar, ProgressBar) {
-        let style = ProgressStyle::with_template(
-            "[{elapsed_precise}] {bar:50.cyan/blue} {pos:>7}/{len:7} {msg}",
-        )
-        .unwrap()
-        .progress_chars("##-");
-
-        let m = MultiProgress::new();
-        let pb_files = {
-            let pb = m.add(ProgressBar::new(num_files));
-            pb.set_style(style.clone());
-            pb.set_message("files");
-            pb
-        };
-        let pb_dirs = {
-            let pb = m.add(ProgressBar::new(num_dirs));
-            pb.set_style(style.clone());
-            pb.set_message("dirs");
-            pb
-        };
-
-        (pb_files, pb_dirs)
-    }
-
     pub fn run(&self) -> io::Result<()> {
         let dir = self
             .dir
@@ -277,10 +256,9 @@ impl Build {
             self.target_files(&ctx).expect("failed to list all files");
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
 
-        let (pb_files, pb_dirs) = Self::setup_progress_bar(num_files, num_dirs);
-        let object = parallel_walk(&ctx, &pb_files, &pb_dirs, files, max_depth, HashMap::new())?;
-        pb_files.finish_and_clear();
-        pb_dirs.finish_and_clear();
+        let pb = BuildProgressBar::new(num_files, num_dirs, self.progress);
+        let object = parallel_walk(&ctx, &pb, files, max_depth, HashMap::new())?;
+        pb.finish();
 
         if self.no_write_head {
             println!("HEAD: {}", object.object_id);

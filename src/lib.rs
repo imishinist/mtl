@@ -2,6 +2,7 @@ pub mod commands;
 pub mod error;
 pub(crate) mod filesystem;
 pub mod hash;
+pub(crate) mod progress;
 
 pub use commands::*;
 pub use error::*;
@@ -25,7 +26,7 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[derive(Debug, PartialEq, Eq, Clone, ValueEnum)]
+#[derive(Debug, PartialEq, Eq, Clone, ValueEnum, std::hash::Hash)]
 pub enum ObjectType {
     Tree,
     File,
@@ -52,7 +53,7 @@ impl FromStr for ObjectType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, std::hash::Hash)]
 pub struct ObjectID {
     inner: Hash,
 }
@@ -85,7 +86,7 @@ impl FromStr for ObjectID {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub struct Object {
     object_type: ObjectType,
     object_id: ObjectID,
@@ -95,20 +96,20 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn new(object_type: ObjectType, object_id: ObjectID, file_name: PathBuf) -> Self {
+    pub fn new<P: Into<PathBuf>>(object_type: ObjectType, object_id: ObjectID, file_name: P) -> Self {
         Object {
             object_type,
             object_id,
-            file_name,
+            file_name: file_name.into(),
         }
     }
 
-    pub fn new_tree(object_id: ObjectID, file_name: PathBuf) -> Self {
-        Object::new(ObjectType::Tree, object_id, file_name)
+    pub fn new_tree<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
+        Object::new(ObjectType::Tree, object_id, file_name.into())
     }
 
-    pub fn new_file(object_id: ObjectID, file_name: PathBuf) -> Self {
-        Object::new(ObjectType::File, object_id, file_name)
+    pub fn new_file<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
+        Object::new(ObjectType::File, object_id, file_name.into())
     }
 
     pub fn is_tree(&self) -> bool {
@@ -135,6 +136,18 @@ impl PartialOrd<Self> for Object {
 impl Ord for Object {
     fn cmp(&self, other: &Self) -> Ordering {
         return self.file_name.cmp(&other.file_name);
+    }
+}
+
+impl fmt::Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}\t{}\t{}",
+            self.object_type,
+            self.object_id,
+            self.file_name.display()
+        )
     }
 }
 
@@ -194,7 +207,10 @@ impl Context {
                     let path = entry.path();
 
                     if path.is_dir() {
-                        log::warn!("Unexpected directory in object directory: {}", path.display());
+                        log::warn!(
+                            "Unexpected directory in object directory: {}",
+                            path.display()
+                        );
                     }
                     if path.is_file() {
                         object_files.push(path);

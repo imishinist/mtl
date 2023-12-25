@@ -2,13 +2,16 @@ pub mod local;
 
 use std::collections::HashMap;
 use std::io::BufWriter;
-use std::path::PathBuf;
-use std::{env, fs, io};
 use std::os::unix::fs::MetadataExt;
+use std::path::{Path, PathBuf};
+use std::{env, fs, io};
 
 use clap::{Args, Subcommand};
+use console::{style, Style};
+use itertools::Itertools;
+use similar::{self, Algorithm, ChangeTag, DiffOp};
 
-use crate::{Context, ObjectID, ObjectType, ParseError};
+use crate::{Context, Object, ObjectID, ObjectType, ParseError};
 
 #[derive(Subcommand)]
 pub enum LocalCommand {
@@ -54,6 +57,199 @@ impl CatObjectCommand {
         let contents = fs::read_to_string(file_name)?;
         print!("{}", contents);
 
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct DiffCommand {
+    /// Directory where to run the command
+    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
+    dir: Option<PathBuf>,
+
+    #[clap(value_name = "object-id")]
+    pub object_a: ObjectID,
+
+    #[clap(value_name = "object-id")]
+    pub object_b: ObjectID,
+
+    /// Maximum depth to print
+    #[clap(long, value_name = "max-depth")]
+    max_depth: Option<usize>,
+}
+
+impl DiffCommand {
+    pub fn run(&self) -> io::Result<()> {
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
+
+        let ctx = Context::new(&dir);
+        Self::print_diff(&ctx, &self.object_a, &self.object_b, self.max_depth)?;
+
+        Ok(())
+    }
+
+    fn print_diff(
+        ctx: &Context,
+        object_a_id: &ObjectID,
+        object_b_id: &ObjectID,
+        max_depth: Option<usize>,
+    ) -> io::Result<()> {
+        let object_a = Object::new_tree(object_a_id.clone(), ".");
+        let object_b = Object::new_tree(object_b_id.clone(), ".");
+        Self::print_difference("", Some(&object_a), Some(&object_b))?;
+        Self::inner_print_diff(ctx, "", object_a_id, object_b_id, max_depth, 0)
+    }
+
+    fn inner_print_diff<P: AsRef<Path>>(
+        ctx: &Context,
+        parent: P,
+        object_a: &ObjectID,
+        object_b: &ObjectID,
+        max_depth: Option<usize>,
+        depth: usize,
+    ) -> io::Result<()> {
+        if object_a == object_b {
+            return Ok(());
+        }
+        if let Some(max_depth) = max_depth {
+            if depth >= max_depth {
+                return Ok(());
+            }
+        }
+
+        let parent = parent.as_ref();
+        let tree_a = ctx.read_tree_contents(object_a).expect("tree_a");
+        let tree_b = ctx.read_tree_contents(object_b).expect("tree_b");
+
+        let diff = similar::capture_diff_slices(Algorithm::Myers, &tree_a, &tree_b);
+        for op in diff {
+            match op {
+                DiffOp::Equal { .. } => continue,
+                DiffOp::Delete { .. } => {
+                    for change in op.iter_changes(&tree_a, &tree_b) {
+                        Self::print_difference(parent, Some(change.value_ref()), None)?;
+                    }
+                }
+                DiffOp::Insert { .. } => {
+                    for change in op.iter_changes(&tree_a, &tree_b) {
+                        Self::print_difference(parent, None, Some(change.value_ref()))?;
+                    }
+                }
+
+                DiffOp::Replace { .. } => {
+                    let file_names = op
+                        .iter_changes(&tree_a, &tree_b)
+                        .fold(HashMap::new(), |mut file_names, change| {
+                            let object = change.value();
+                            file_names
+                                .entry(object.file_name.clone())
+                                .or_insert(Vec::new())
+                                .push((change, object));
+                            file_names
+                        })
+                        .into_iter()
+                        .sorted_by(|(file_name_a, _), (file_name_b, _)| {
+                            file_name_a.cmp(file_name_b)
+                        })
+                        .collect_vec();
+                    for (file_name, changes) in file_names {
+                        let mut object_a = None;
+                        let mut object_b = None;
+                        for (change, object) in changes {
+                            match change.tag() {
+                                ChangeTag::Delete => object_a = Some(object),
+                                ChangeTag::Insert => object_b = Some(object),
+                                ChangeTag::Equal => {}
+                            }
+                        }
+
+                        Self::print_difference(parent, object_a.as_ref(), object_b.as_ref())?;
+                        match (object_a, object_b) {
+                            (Some(object_a), Some(object_b))
+                                if object_a.is_tree() && object_b.is_tree() =>
+                            {
+                                let _ = Self::inner_print_diff(
+                                    ctx,
+                                    parent.join(&file_name),
+                                    &object_a.object_id,
+                                    &object_b.object_id,
+                                    max_depth,
+                                    depth + 1,
+                                )?;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn print_difference<P: AsRef<Path>>(
+        path: P,
+        object_a: Option<&Object>,
+        object_b: Option<&Object>,
+    ) -> io::Result<()> {
+        let path = path.as_ref();
+        match (object_a, object_b) {
+            (Some(object_a), Some(object_b)) => {
+                let (object_type_style_a, object_type_style_b) =
+                    if object_a.object_type == object_b.object_type {
+                        (Style::new(), Style::new())
+                    } else {
+                        (Style::new().red(), Style::new().green())
+                    };
+                let (object_id_style_a, object_id_style_b) =
+                    if object_a.object_id == object_b.object_id {
+                        (Style::new(), Style::new())
+                    } else {
+                        (Style::new().red(), Style::new().green())
+                    };
+                let path = path.join(&object_a.file_name);
+                println!(
+                    "{}/{} {}/{}\t{}/{}\t{}",
+                    style("-").red(),
+                    style("+").green(),
+                    object_type_style_a.apply_to(&object_a.object_type),
+                    object_type_style_b.apply_to(&object_b.object_type),
+                    object_id_style_a.apply_to(&object_a.object_id),
+                    object_id_style_b.apply_to(&object_b.object_id),
+                    path.display(),
+                );
+            }
+            (Some(object_a), None) => {
+                let path = path.join(&object_a.file_name);
+                println!(
+                    "{}/  {}/{}\t{}/{}\t{}",
+                    style("-").red(),
+                    style(&object_a.object_type).red(),
+                    " ".repeat(4),
+                    style(&object_a.object_id).red(),
+                    " ".repeat(16),
+                    style(path.display()).red(),
+                );
+            }
+            (None, Some(object_b)) => {
+                let path = path.join(&object_b.file_name);
+                println!(
+                    " /{} {}/{}\t{}/{}\t{}",
+                    style("+").green(),
+                    " ".repeat(4),
+                    style(&object_b.object_type).green(),
+                    " ".repeat(16),
+                    style(&object_b.object_id).green(),
+                    style(path.display()).green(),
+                );
+            }
+            (None, None) => {}
+        }
         Ok(())
     }
 }
@@ -188,7 +384,8 @@ impl GCCommand {
             .iter()
             .map(|x| (x.to_path_buf(), false))
             .collect::<HashMap<_, _>>();
-        self.mark_used_object(&ctx, &head_object, &mut objects).expect("mark_used_object");
+        self.mark_used_object(&ctx, &head_object, &mut objects)
+            .expect("mark_used_object");
 
         let mut deleted_objects = 0u64;
         let mut deleted_bytes = 0u64;
@@ -206,15 +403,26 @@ impl GCCommand {
             }
         }
         if self.dry_run {
-            println!("[dry-run] Deleted {} objects ({} bytes)", deleted_objects, deleted_bytes);
+            println!(
+                "[dry-run] Deleted {} objects ({} bytes)",
+                deleted_objects, deleted_bytes
+            );
         } else {
-            println!("Deleted {} objects ({} bytes)", deleted_objects, deleted_bytes);
+            println!(
+                "Deleted {} objects ({} bytes)",
+                deleted_objects, deleted_bytes
+            );
         }
 
         Ok(())
     }
 
-    pub fn mark_used_object(&self, ctx: &Context, root_object: &ObjectID, objects: &mut HashMap<PathBuf, bool>) -> Result<(), ParseError> {
+    pub fn mark_used_object(
+        &self,
+        ctx: &Context,
+        root_object: &ObjectID,
+        objects: &mut HashMap<PathBuf, bool>,
+    ) -> Result<(), ParseError> {
         let root_path = ctx.object_file(root_object);
         objects.insert(root_path, true);
 

@@ -4,7 +4,7 @@ use std::num::ParseIntError;
 use std::path::Path;
 use std::{fmt, fs, io};
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq, std::hash::Hash)]
 pub struct Hash {
     xxh3: u64,
 }

@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.75"
 async-recursion = "1.0.5"
 clap = { version = "4.4.11", features = ["derive"] }
+console = "0.15.7"
 crossbeam = "0.8.2"
 crossbeam-channel = "0.5.9"
 dhat = { version ="0.3.2", optional = true }
@@ -23,6 +24,7 @@ md5 = "0.7.0"
 rand = "0.8.5"
 rayon = "1.8.0"
 sha1 = "0.10.6"
+similar = { version = "2.3.0", features = ["inline"] }
 thiserror = "1.0.51"
 tikv-jemallocator = { version = "0.5.4", optional = true }
 tokio = { version = "1.35.0", features = ["rt-multi-thread", "fs", "macros"] }
