@@ -118,73 +118,67 @@ impl DiffCommand {
             }
         }
 
+        let parent = parent.as_ref();
         let tree_a = ctx.read_tree_contents(object_a).expect("tree_a");
         let tree_b = ctx.read_tree_contents(object_b).expect("tree_b");
-        let group = similar::group_diff_ops(
-            similar::capture_diff_slices(Algorithm::Myers, &tree_a, &tree_b),
-            10,
-        );
-        let parent = parent.as_ref();
 
-        for (_idx, group) in group.iter().enumerate() {
-            for op in group {
-                match op {
-                    DiffOp::Equal { .. } => continue,
-                    DiffOp::Delete { .. } => {
-                        for change in op.iter_changes(&tree_a, &tree_b) {
-                            Self::print_difference(parent, Some(change.value_ref()), None)?;
-                        }
+        let diff = similar::capture_diff_slices(Algorithm::Myers, &tree_a, &tree_b);
+        for op in diff {
+            match op {
+                DiffOp::Equal { .. } => continue,
+                DiffOp::Delete { .. } => {
+                    for change in op.iter_changes(&tree_a, &tree_b) {
+                        Self::print_difference(parent, Some(change.value_ref()), None)?;
                     }
-                    DiffOp::Insert { .. } => {
-                        for change in op.iter_changes(&tree_a, &tree_b) {
-                            Self::print_difference(parent, None, Some(change.value_ref()))?;
-                        }
+                }
+                DiffOp::Insert { .. } => {
+                    for change in op.iter_changes(&tree_a, &tree_b) {
+                        Self::print_difference(parent, None, Some(change.value_ref()))?;
                     }
+                }
 
-                    DiffOp::Replace { .. } => {
-                        let file_names = op
-                            .iter_changes(&tree_a, &tree_b)
-                            .fold(HashMap::new(), |mut file_names, change| {
-                                let object = change.value();
-                                file_names
-                                    .entry(object.file_name.clone())
-                                    .or_insert(Vec::new())
-                                    .push((change, object));
-                                file_names
-                            })
-                            .into_iter()
-                            .sorted_by(|(file_name_a, _), (file_name_b, _)| {
-                                file_name_a.cmp(file_name_b)
-                            })
-                            .into_iter()
-                            .collect_vec();
-                        for (file_name, changes) in file_names {
-                            let mut object_a = None;
-                            let mut object_b = None;
-                            for (change, object) in changes {
-                                match change.tag() {
-                                    ChangeTag::Delete => object_a = Some(object),
-                                    ChangeTag::Insert => object_b = Some(object),
-                                    ChangeTag::Equal => {}
-                                }
+                DiffOp::Replace { .. } => {
+                    let file_names = op
+                        .iter_changes(&tree_a, &tree_b)
+                        .fold(HashMap::new(), |mut file_names, change| {
+                            let object = change.value();
+                            file_names
+                                .entry(object.file_name.clone())
+                                .or_insert(Vec::new())
+                                .push((change, object));
+                            file_names
+                        })
+                        .into_iter()
+                        .sorted_by(|(file_name_a, _), (file_name_b, _)| {
+                            file_name_a.cmp(file_name_b)
+                        })
+                        .collect_vec();
+                    for (file_name, changes) in file_names {
+                        let mut object_a = None;
+                        let mut object_b = None;
+                        for (change, object) in changes {
+                            match change.tag() {
+                                ChangeTag::Delete => object_a = Some(object),
+                                ChangeTag::Insert => object_b = Some(object),
+                                ChangeTag::Equal => {}
                             }
+                        }
 
-                            Self::print_difference(parent, object_a.as_ref(), object_b.as_ref())?;
-                            match (object_a, object_b) {
-                                (Some(object_a), Some(object_b))
-                                    if object_a.is_tree() && object_b.is_tree() =>
-                                {
-                                    let _ = Self::inner_print_diff(
-                                        ctx,
-                                        parent.join(&file_name),
-                                        &object_a.object_id,
-                                        &object_b.object_id,
-                                        max_depth,
-                                        depth + 1,
-                                    )?;
-                                }
-                                _ => {}
+                        Self::print_difference(parent, object_a.as_ref(), object_b.as_ref())?;
+                        match (object_a, object_b) {
+                            (Some(object_a), Some(object_b))
+                                if object_a.is_tree() && object_b.is_tree() =>
+                            {
+                                let _ = Self::inner_print_diff(
+                                    ctx,
+                                    parent.join(&file_name),
+                                    &object_a.object_id,
+                                    &object_b.object_id,
+                                    max_depth,
+                                    depth + 1,
+                                )?;
                             }
+                            _ => {}
                         }
                     }
                 }
