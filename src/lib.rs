@@ -26,7 +26,7 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[derive(Debug, PartialEq, Eq, Clone, ValueEnum)]
+#[derive(Debug, PartialEq, Eq, Clone, ValueEnum, std::hash::Hash)]
 pub enum ObjectType {
     Tree,
     File,
@@ -53,7 +53,7 @@ impl FromStr for ObjectType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub struct ObjectID {
     inner: Hash,
 }
@@ -86,7 +86,7 @@ impl FromStr for ObjectID {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub struct Object {
     object_type: ObjectType,
     object_id: ObjectID,
@@ -136,6 +136,18 @@ impl PartialOrd<Self> for Object {
 impl Ord for Object {
     fn cmp(&self, other: &Self) -> Ordering {
         return self.file_name.cmp(&other.file_name);
+    }
+}
+
+impl fmt::Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}\t{}\t{}",
+            self.object_type,
+            self.object_id,
+            self.file_name.display()
+        )
     }
 }
 

@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::{env, fs, io};
 
 use clap::{Args, Subcommand};
+use similar::{self, Algorithm};
 
 use crate::{Context, ObjectID, ObjectType, ParseError};
 
@@ -53,6 +54,68 @@ impl CatObjectCommand {
         let file_name = ctx.object_file(&self.object_id);
         let contents = fs::read_to_string(file_name)?;
         print!("{}", contents);
+
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct DiffCommand {
+    /// Directory where to run the command
+    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
+    dir: Option<PathBuf>,
+
+    #[clap(value_name = "object-id")]
+    pub object_a: ObjectID,
+
+    #[clap(value_name = "object-id")]
+    pub object_b: ObjectID,
+}
+
+impl DiffCommand {
+    pub fn run(&self) -> io::Result<()> {
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
+
+        let ctx = Context::new(&dir);
+
+        let tree_a = ctx.read_tree_contents(&self.object_a).expect("tree_a");
+        let tree_b = ctx.read_tree_contents(&self.object_b).expect("tree_b");
+        let group = similar::group_diff_ops(
+            similar::capture_diff_slices(Algorithm::Myers, &tree_a, &tree_b),
+            10,
+        );
+
+        println!("--- {}\n+++ {}", self.object_a, self.object_b);
+        for (_idx, group) in group.iter().enumerate() {
+            for op in group {
+                let old = op.old_range();
+                let new = op.new_range();
+                println!(
+                    "@@ -{},{} +{},{} @@",
+                    old.start + 1,
+                    old.len(),
+                    new.start + 1,
+                    new.len());
+                for change in op.iter_changes(&tree_a, &tree_b) {
+                    match change.tag() {
+                        similar::ChangeTag::Delete => {
+                            println!("- {}", change.value());
+                        }
+                        similar::ChangeTag::Insert => {
+                            println!("+ {}", change.value());
+                        }
+                        similar::ChangeTag::Equal => {
+                            println!("  {}", change.value());
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
