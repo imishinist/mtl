@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.75"
 async-recursion = "1.0.5"
 clap = { version = "4.4.11", features = ["derive"] }
+console = "0.15.7"
 crossbeam = "0.8.2"
 crossbeam-channel = "0.5.9"
 dhat = { version ="0.3.2", optional = true }

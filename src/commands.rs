@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
 use clap::{Args, Subcommand};
+use console::{style, Style};
 use itertools::Itertools;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
@@ -94,11 +95,14 @@ impl DiffCommand {
 
     fn print_diff(
         ctx: &Context,
-        object_a: &ObjectID,
-        object_b: &ObjectID,
+        object_a_id: &ObjectID,
+        object_b_id: &ObjectID,
         max_depth: Option<usize>,
     ) -> io::Result<()> {
-        Self::inner_print_diff(ctx, "", object_a, object_b, max_depth, 0)
+        let object_a = Object::new_tree(object_a_id.clone(), ".");
+        let object_b = Object::new_tree(object_b_id.clone(), ".");
+        Self::print_difference("", Some(&object_a), Some(&object_b))?;
+        Self::inner_print_diff(ctx, "", object_a_id, object_b_id, max_depth, 0)
     }
 
     fn inner_print_diff<P: AsRef<Path>>(
@@ -196,36 +200,52 @@ impl DiffCommand {
         let path = path.as_ref();
         match (object_a, object_b) {
             (Some(object_a), Some(object_b)) => {
+                let (object_type_style_a, object_type_style_b) =
+                    if object_a.object_type == object_b.object_type {
+                        (Style::new(), Style::new())
+                    } else {
+                        (Style::new().red(), Style::new().green())
+                    };
+                let (object_id_style_a, object_id_style_b) =
+                    if object_a.object_id == object_b.object_id {
+                        (Style::new(), Style::new())
+                    } else {
+                        (Style::new().red(), Style::new().green())
+                    };
                 let path = path.join(&object_a.file_name);
                 println!(
-                    "-/+ {}/{}\t{}/{}\t{}",
-                    object_a.object_type,
-                    object_b.object_type,
-                    object_a.object_id,
-                    object_b.object_id,
-                    path.display()
+                    "{}/{} {}/{}\t{}/{}\t{}",
+                    style("-").red(),
+                    style("+").green(),
+                    object_type_style_a.apply_to(&object_a.object_type),
+                    object_type_style_b.apply_to(&object_b.object_type),
+                    object_id_style_a.apply_to(&object_a.object_id),
+                    object_id_style_b.apply_to(&object_b.object_id),
+                    path.display(),
                 );
             }
             (Some(object_a), None) => {
                 let path = path.join(&object_a.file_name);
                 println!(
-                    "-/  {}/{}\t{}/{}\t{}",
-                    object_a.object_type,
+                    "{}/  {}/{}\t{}/{}\t{}",
+                    style("-").red(),
+                    style(&object_a.object_type).red(),
                     " ".repeat(4),
-                    object_a.object_id,
+                    style(&object_a.object_id).red(),
                     " ".repeat(16),
-                    path.display()
+                    style(path.display()).red(),
                 );
             }
             (None, Some(object_b)) => {
                 let path = path.join(&object_b.file_name);
                 println!(
-                    " /+ {}/{}\t{}/{}\t{}",
+                    " /{} {}/{}\t{}/{}\t{}",
+                    style("+").green(),
                     " ".repeat(4),
-                    object_b.object_type,
+                    style(&object_b.object_type).green(),
                     " ".repeat(16),
-                    object_b.object_id,
-                    path.display()
+                    style(&object_b.object_id).green(),
+                    style(path.display()).green(),
                 );
             }
             (None, None) => {}

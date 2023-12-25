@@ -709,6 +709,7 @@ dependencies = [
  "anyhow",
  "async-recursion",
  "clap",
+ "console",
  "criterion",
  "crossbeam",
  "crossbeam-channel",

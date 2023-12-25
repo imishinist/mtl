@@ -53,7 +53,7 @@ impl FromStr for ObjectType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, std::hash::Hash)]
 pub struct ObjectID {
     inner: Hash,
 }
@@ -96,20 +96,20 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn new(object_type: ObjectType, object_id: ObjectID, file_name: PathBuf) -> Self {
+    pub fn new<P: Into<PathBuf>>(object_type: ObjectType, object_id: ObjectID, file_name: P) -> Self {
         Object {
             object_type,
             object_id,
-            file_name,
+            file_name: file_name.into(),
         }
     }
 
-    pub fn new_tree(object_id: ObjectID, file_name: PathBuf) -> Self {
-        Object::new(ObjectType::Tree, object_id, file_name)
+    pub fn new_tree<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
+        Object::new(ObjectType::Tree, object_id, file_name.into())
     }
 
-    pub fn new_file(object_id: ObjectID, file_name: PathBuf) -> Self {
-        Object::new(ObjectType::File, object_id, file_name)
+    pub fn new_file<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
+        Object::new(ObjectType::File, object_id, file_name.into())
     }
 
     pub fn is_tree(&self) -> bool {
