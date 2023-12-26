@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, Read};
-use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::{env, fs, io};
@@ -328,6 +327,16 @@ pub struct List {
 }
 
 fn format_filetype(mode: &fs::FileType) -> &'static str {
+    #[cfg(unix)]
+    return unix_format_filetype(mode);
+
+    #[cfg(windows)]
+    return windows_format_filetype(mode);
+}
+
+#[cfg(unix)]
+fn unix_format_filetype(mode: &fs::FileType) -> &'static str {
+    use std::os::unix::fs::FileTypeExt;
     if mode.is_dir() {
         "dir"
     } else if mode.is_file() {
@@ -342,6 +351,21 @@ fn format_filetype(mode: &fs::FileType) -> &'static str {
         "fifo"
     } else if mode.is_socket() {
         "socket"
+    } else {
+        "unknown"
+    }
+}
+
+#[cfg(windows)]
+fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
+    #[allow(unused_imports)]
+    use std::os::windows::fs::FileTypeExt;
+    if mode.is_dir() {
+        "dir"
+    } else if mode.is_file() {
+        "file"
+    } else if mode.is_symlink() {
+        "symlink"
     } else {
         "unknown"
     }

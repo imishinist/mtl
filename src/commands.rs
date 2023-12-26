@@ -2,7 +2,6 @@ pub mod local;
 
 use std::collections::HashMap;
 use std::io::BufWriter;
-use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::{env, fs, io};
 
@@ -11,7 +10,7 @@ use console::{style, Style};
 use itertools::Itertools;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
-use crate::{Context, Object, ObjectID, ObjectType, ParseError};
+use crate::{Context, file_size, Object, ObjectID, ObjectType, ParseError};
 
 #[derive(Subcommand)]
 pub enum LocalCommand {
@@ -393,7 +392,8 @@ impl GCCommand {
             if !used {
                 let metadata = fs::metadata(&path)?;
                 deleted_objects += 1;
-                deleted_bytes += metadata.size();
+                deleted_bytes += file_size(&metadata);
+
                 if self.dry_run {
                     println!("[dry-run] Removing {}", path.display());
                 } else {

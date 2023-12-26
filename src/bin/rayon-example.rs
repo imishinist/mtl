@@ -93,6 +93,7 @@ struct Cli {
     source: String,
 }
 fn main() {
+    #[cfg(not(target_os = "windows"))]
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }

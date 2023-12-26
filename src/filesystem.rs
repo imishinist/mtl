@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::ffi::OsStr;
+use std::fs;
 use std::path::Path;
 
 #[cfg(any(unix, target_os = "redox"))]
@@ -16,6 +17,18 @@ pub fn osstr_to_bytes(input: &OsStr) -> Cow<[u8]> {
         Cow::Owned(string) => Cow::Owned(string.into_bytes()),
         Cow::Borrowed(string) => Cow::Borrowed(string.as_bytes()),
     }
+}
+
+#[cfg(unix)]
+pub fn file_size(metadata: &fs::Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+    metadata.size()
+}
+
+#[cfg(windows)]
+pub fn file_size(metadata: &fs::Metadata) -> u64 {
+    use std::os::windows::fs::MetadataExt;
+    metadata.file_size()
 }
 
 pub fn strip_current_dir(path: &Path) -> &Path {

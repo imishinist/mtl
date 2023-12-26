@@ -36,16 +36,19 @@ enum Commands {
 #[global_allocator]
 static GLOBAL: dhat::Alloc = dhat::Alloc;
 
+fn setup_signal_handler() {
+    #[cfg(not(target_os = "windows"))]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+}
+
 fn main() -> io::Result<()> {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 
     env_logger::init();
-
-    unsafe {
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-    }
-
+    setup_signal_handler();
     let start = time::Instant::now();
 
     let mtl = MTLCommands::parse();
