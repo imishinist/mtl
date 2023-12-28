@@ -11,7 +11,7 @@ pub use filesystem::*;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -118,6 +118,12 @@ impl Object {
 
     pub fn is_file(&self) -> bool {
         self.object_type == ObjectType::File
+    }
+
+    pub fn size(&self) -> usize {
+        // "tree" "\t" "d447b1ea40e6988b" "\t" string "\n"
+        // 4 + 1 + 16 + 1 + str_len + 1
+        23 + self.file_name.as_os_str().len()
     }
 }
 
@@ -283,14 +289,12 @@ impl Context {
 
 // serialize entries should be called with sorted entries
 fn serialize_entries<T: AsRef<Object>>(entries: &[T]) -> io::Result<Vec<u8>> {
-    // Note: should decrease allocation?
-    let mut buf = Vec::new();
+    let size = entries.iter().map(|e| e.as_ref().size()).sum();
 
+    let mut buf = Vec::with_capacity(size);
     for entry in entries {
         let entry = entry.as_ref();
-        buf.extend_from_slice(format!("{}\t{}\t", entry.object_type, entry.object_id).as_bytes());
-        buf.extend_from_slice(entry.file_name.to_str().unwrap().as_bytes());
-        buf.push(b'\n');
+        writeln!(&mut buf, "{}", entry)?;
     }
 
     Ok(buf)
@@ -365,5 +369,22 @@ mod tests {
             ],
             objects.into_iter().map(|o| o.file_name).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn test_object_size() {
+        let object_id = ObjectID::from_hex("d447b1ea40e6988b").unwrap();
+        let objects = vec![
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("a")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("aa")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("aあ")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("あ")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("ああ")),
+        ];
+        assert_eq!(objects[0].size(), 24);
+        assert_eq!(objects[1].size(), 25);
+        assert_eq!(objects[2].size(), 27);
+        assert_eq!(objects[3].size(), 26);
+        assert_eq!(objects[4].size(), 29);
     }
 }
