@@ -294,7 +294,7 @@ fn serialize_entries<T: AsRef<Object>>(entries: &[T]) -> io::Result<Vec<u8>> {
     let mut buf = Vec::with_capacity(size);
     for entry in entries {
         let entry = entry.as_ref();
-        writeln!(&mut buf, "{}\t{}\t{}", entry.object_type, entry.object_id, entry.file_name.to_str().unwrap())?;
+        writeln!(&mut buf, "{}", entry)?;
     }
 
     Ok(buf)
