@@ -292,9 +292,12 @@ impl Context {
         head_name.join(MTL_DIR).join("HEAD")
     }
 
+    pub fn reference_dir(&self) -> PathBuf {
+        self.root_dir.as_path().join(MTL_DIR).join("refs")
+    }
+
     pub fn reference_file(&self, reference: &str) -> PathBuf {
-        let reference_name = self.root_dir.as_path();
-        reference_name.join(MTL_DIR).join("refs").join(reference)
+        self.reference_dir().join(reference)
     }
 
     pub fn deref_object_ref(&self, object_ref: &ObjectRef) -> Result<ObjectID, ReadContentError> {
@@ -344,8 +347,11 @@ impl Context {
         ref_name: S,
         object_id: ObjectID,
     ) -> io::Result<()> {
-        let reference_file = self.reference_file(ref_name.as_ref());
-        fs::write(reference_file, object_id.to_string())?;
+        let ref_dir = self.reference_dir();
+        fs::create_dir_all(&ref_dir)?;
+
+        let ref_file = self.reference_file(ref_name.as_ref());
+        fs::write(ref_file, object_id.to_string())?;
         Ok(())
     }
 

@@ -60,6 +60,9 @@ mod tests {
 
         let actual = super::Hash::from_hex("ghijklmnopqrstuv");
         assert!(actual.is_err());
-        assert_eq!(format!("{}", actual.unwrap_err()), "invalid digit found in string");
+        assert_eq!(
+            format!("{}", actual.unwrap_err()),
+            "invalid digit found in string"
+        );
     }
 }
