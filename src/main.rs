@@ -1,14 +1,19 @@
-use std::time;
+use std::path::PathBuf;
+use std::{env, time};
 
 use clap::{Parser, Subcommand};
 
-use mtl::commands;
+use mtl::{commands, Context};
 
 /// MTL is a tool that recursively computes hash values for files.
 #[derive(Parser)]
 #[command(author, version, about, long_about=None)]
 #[command(propagate_version = true)]
 struct MTLCommands {
+    /// Working directory.
+    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
+    dir: Option<PathBuf>,
+
     #[command(subcommand)]
     commands: Commands,
 }
@@ -56,13 +61,22 @@ fn main() -> anyhow::Result<()> {
     let start = time::Instant::now();
 
     let mtl = MTLCommands::parse();
+
+    let dir = mtl
+        .dir
+        .as_ref()
+        .unwrap_or(&env::current_dir()?)
+        .canonicalize()?;
+    log::info!("dir: {}", dir.display());
+
+    let ctx = Context::new(&dir);
     match &mtl.commands {
-        Commands::Local(local) => local.run()?,
-        Commands::Ref(ref_command) => ref_command.run()?,
-        Commands::CatObject(cat_object) => cat_object.run()?,
-        Commands::Diff(diff) => diff.run()?,
-        Commands::GC(gc) => gc.run()?,
-        Commands::PrintTree(print_tree) => print_tree.run()?,
+        Commands::Local(local) => local.run(ctx)?,
+        Commands::Ref(ref_command) => ref_command.run(ctx)?,
+        Commands::CatObject(cat_object) => cat_object.run(ctx)?,
+        Commands::Diff(diff) => diff.run(ctx)?,
+        Commands::GC(gc) => gc.run(ctx)?,
+        Commands::PrintTree(print_tree) => print_tree.run(ctx)?,
     }
 
     log::info!("Elapsed time: {:?}", start.elapsed());

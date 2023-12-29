@@ -4,7 +4,7 @@ use std::fs::File;
 use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::{env, fs, io};
+use std::{fs, io};
 
 use anyhow::anyhow;
 use clap::Args;
@@ -242,15 +242,7 @@ pub struct Build {
 }
 
 impl Build {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-
-        let ctx = Context::new(&dir);
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let (max_depth, files, num_files, num_dirs) =
             self.target_files(&ctx).expect("failed to list all files");
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
@@ -372,15 +364,7 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 }
 
 impl List {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-
-        let ctx = Context::new(&dir);
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let (max_depth, files, _, _) =
             list_all_files(&ctx, false).expect("failed to list all files");
         log::info!("max_depth: {}, files: {}", max_depth, files.len());

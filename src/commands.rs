@@ -4,7 +4,7 @@ mod r#ref;
 use std::collections::HashMap;
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
-use std::{env, fs, io};
+use std::{fs, io};
 
 use clap::{Args, Subcommand};
 use console::{style, Style};
@@ -23,10 +23,10 @@ pub enum LocalCommand {
 }
 
 impl LocalCommand {
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         match self {
-            LocalCommand::Build(cmd) => cmd.run(),
-            LocalCommand::List(cmd) => cmd.run(),
+            LocalCommand::Build(cmd) => cmd.run(ctx),
+            LocalCommand::List(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -44,11 +44,11 @@ pub enum RefCommand {
 }
 
 impl RefCommand {
-    pub fn run(&self) -> anyhow::Result<()> {
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         match self {
-            RefCommand::List(cmd) => cmd.run(),
-            RefCommand::Save(cmd) => cmd.run(),
-            RefCommand::Delete(cmd) => cmd.run(),
+            RefCommand::List(cmd) => cmd.run(ctx),
+            RefCommand::Save(cmd) => cmd.run(ctx),
+            RefCommand::Delete(cmd) => cmd.run(ctx),
         }
     }
 }
@@ -65,16 +65,7 @@ pub struct CatObjectCommand {
 }
 
 impl CatObjectCommand {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-
-        let ctx = Context::new(&dir);
-
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = ctx
             .deref_object_ref(&self.object_id)
             .expect("failed to parse");
@@ -104,15 +95,7 @@ pub struct DiffCommand {
 }
 
 impl DiffCommand {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-
-        let ctx = Context::new(&dir);
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_a = ctx
             .deref_object_ref(&self.object_a)
             .expect("failed to parse");
@@ -305,15 +288,7 @@ pub struct PrintTreeCommand {
 }
 
 impl PrintTreeCommand {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-        let ctx = Context::new(&dir);
-
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = match self.root {
             Some(ref object_id) => ctx.deref_object_ref(object_id).expect("failed to parse"),
             None => ctx.read_head()?,
@@ -400,15 +375,7 @@ pub struct GCCommand {
 }
 
 impl GCCommand {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-        let ctx = Context::new(&dir);
-
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let head_object = ctx.read_head()?;
         let mut objects = ctx
             .object_files()?

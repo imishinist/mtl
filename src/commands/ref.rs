@@ -1,4 +1,3 @@
-use std::env;
 use std::path::PathBuf;
 
 use clap::Args;
@@ -13,15 +12,7 @@ pub struct List {
 }
 
 impl List {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-
-        let ctx = Context::new(&dir);
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let refs = ctx.list_object_refs()?;
         for object_ref in refs {
             let object_id = ctx
@@ -47,15 +38,7 @@ pub struct Save {
 }
 
 impl Save {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-
-        let ctx = Context::new(&dir);
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = match self.object_id {
             Some(ref object_id) => ctx.deref_object_ref(object_id).expect("invalid object id"),
             None => ctx.read_head()?,
@@ -78,15 +61,7 @@ pub struct Delete {
 }
 
 impl Delete {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let dir = self
-            .dir
-            .as_ref()
-            .unwrap_or(&env::current_dir()?)
-            .canonicalize()?;
-        log::info!("dir: {}", dir.display());
-
-        let ctx = Context::new(&dir);
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         ctx.delete_object_ref(&self.ref_name)?;
         println!("\"{}\" deleted", self.ref_name);
         Ok(())
