@@ -22,7 +22,8 @@ impl List {
         let ctx = Context::new(&dir);
         let refs = ctx.list_object_refs()?;
         for object_ref in refs {
-            println!("{}", object_ref);
+            let object_id = ctx.deref_object_ref(&object_ref).expect("invalid object id");
+            println!("{}\t{}", object_ref, object_id);
         }
         Ok(())
     }
