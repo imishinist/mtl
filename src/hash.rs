@@ -1,8 +1,6 @@
+use std::fmt;
+
 use crate::ParseHashError;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
-use std::path::Path;
-use std::{fmt, fs, io};
 
 #[derive(Debug, PartialEq, Clone, Copy, Eq, std::hash::Hash, PartialOrd, Ord)]
 pub struct Hash {
@@ -42,133 +40,26 @@ pub fn xxh64_contents<T: AsRef<[u8]>>(contents: T) -> u64 {
     xxhash_rust::xxh64::xxh64(contents.as_ref(), 0)
 }
 
-pub fn md5_contents<T: AsRef<[u8]>>(contents: T) -> [u8; 16] {
-    let mut context = md5::Context::new();
-    context.consume(contents);
-
-    context.compute().into()
-}
-
-pub fn md5_file<P: AsRef<Path>>(path: P) -> io::Result<[u8; 16]> {
-    let contents = fs::read(path)?;
-    Ok(md5_contents(contents))
-}
-
-pub fn md5_file_partial<P: AsRef<Path>>(path: P, buf_size: usize) -> io::Result<[u8; 16]> {
-    let file = File::open(path)?;
-    let len = file.metadata()?.len() as usize;
-
-    let buf_len = len.min(buf_size);
-    let mut buf = BufReader::with_capacity(buf_len, file);
-
-    let mut context = md5::Context::new();
-    loop {
-        let part = buf.fill_buf()?;
-        if part.is_empty() {
-            break;
-        }
-
-        context.consume(part);
-
-        let part_len = part.len();
-        buf.consume(part_len);
-    }
-    Ok(context.compute().into())
-}
-
-pub fn md5_string(h: [u8; 16]) -> String {
-    let mut s = String::new();
-    for byte in h.iter() {
-        s.push_str(&format!("{:02x}", byte));
-    }
-    s
-}
-
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-    use std::path::{Path, PathBuf};
-    use std::{fs, io};
-    use tempfile::tempdir;
+    #[test]
+    fn test_hash() {
+        let actual = super::Hash::new(0);
+        let expected = "0000000000000000";
+        assert_eq!(expected, format!("{}", actual));
 
-    struct TempFile {
-        path: PathBuf,
-        file: fs::File,
-    }
-
-    impl TempFile {
-        fn open<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-            let path = path.as_ref().to_path_buf();
-            let file = fs::File::create(&path)?;
-            Ok(Self { path, file })
-        }
-
-        fn write<T: AsRef<[u8]>>(&mut self, contents: T) -> io::Result<()> {
-            self.file.write_all(contents.as_ref())
-        }
-    }
-
-    impl Drop for TempFile {
-        fn drop(&mut self) {
-            fs::remove_file(&self.path).unwrap();
-        }
+        let actual = super::Hash::from_contents("hello world");
+        assert_eq!(actual, super::Hash::from_hex("d447b1ea40e6988b").unwrap());
     }
 
     #[test]
-    fn test_xxh3_contents() {
-        let contents = "hello world";
+    fn test_hash_error() {
+        let actual = super::Hash::from_hex("g");
+        assert!(actual.is_err());
+        assert_eq!(format!("{}", actual.unwrap_err()), "invalid hash format");
 
-        let expected: String = "d447b1ea40e6988b".into();
-        let actual = super::xxh3_contents(contents);
-        assert_eq!(expected, format!("{:x}", actual));
-    }
-
-    #[test]
-    fn test_md5_contents() {
-        let contents = "Hello, world!";
-
-        let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_contents(contents));
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn test_md5_file() {
-        let contents = "Hello, world!";
-
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test.txt");
-        let mut file = TempFile::open(&file_path).unwrap();
-        file.write(contents).unwrap();
-
-        let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_file(&file_path).unwrap());
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn test_md5_file_partial() {
-        let contents = "Hello, world!";
-
-        let dir = tempdir().unwrap();
-        let file_path = dir.path().join("test.txt");
-        let mut file = TempFile::open(&file_path).unwrap();
-        file.write(contents).unwrap();
-
-        let expected = "6cd3556deb0da54bca060b4c39479839";
-        let actual = super::md5_string(super::md5_file_partial(&file_path, 65536).unwrap());
-        assert_eq!(expected, actual);
-    }
-
-    #[test]
-    fn compare_md5_file() {
-        let file = PathBuf::from("/usr/share/dict/words");
-        if !file.exists() {
-            return;
-        }
-
-        let expected = super::md5_file(&file).unwrap();
-        let actual = super::md5_file_partial(&file, 65536).unwrap();
-        assert_eq!(expected, actual);
+        let actual = super::Hash::from_hex("ghijklmnopqrstuv");
+        assert!(actual.is_err());
+        assert_eq!(format!("{}", actual.unwrap_err()), "invalid digit found in string");
     }
 }
