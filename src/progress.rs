@@ -62,3 +62,9 @@ impl BuildProgressBar {
         }
     }
 }
+
+impl Drop for BuildProgressBar {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}

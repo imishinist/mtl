@@ -40,34 +40,51 @@ impl FileEntry {
     }
 }
 
+#[derive(Debug)]
+struct TargetEntries {
+    max_depth: usize,
+    files: Vec<FileEntry>,
+    num_files: u64,
+    num_dirs: u64,
+}
+
+impl TargetEntries {
+    fn new() -> Self {
+        Self {
+            max_depth: 0,
+            files: Vec::new(),
+            num_files: 0,
+            num_dirs: 0,
+        }
+    }
+
+    fn push_file_entry(&mut self, entry: FileEntry) {
+        self.max_depth = self.max_depth.max(entry.depth);
+        match entry.mode {
+            ObjectType::File => self.num_files += 1,
+            ObjectType::Tree => self.num_dirs += 1,
+        }
+        self.files.push(entry);
+    }
+}
+
 fn list_all_files(
     ctx: &Context,
     hidden: bool,
-) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
-    let num_cpu = 4;
-
+) -> anyhow::Result<TargetEntries> {
     let (tx, rx) = crossbeam_channel::bounded::<FileEntry>(100);
     let output_thread = std::thread::spawn(move || {
-        let mut result = Vec::new();
-        let mut max_depth = 0;
-        let mut files = 0;
-        let mut dirs = 0;
-
+        let mut entries = TargetEntries::new();
         for entry in rx {
-            max_depth = max_depth.max(entry.depth);
-            match entry.mode {
-                ObjectType::File => files += 1,
-                ObjectType::Tree => dirs += 1,
-            }
-            result.push(entry);
+            entries.push_file_entry(entry);
         }
-        (max_depth, result, files, dirs)
+        entries
     });
 
     let root_dir = ctx.root_dir();
     let walker = WalkBuilder::new(&root_dir)
         .hidden(hidden)
-        .threads(num_cpu)
+        .threads(num_cpus::get())
         .build_parallel();
     walker.run(|| {
         let tx = tx.clone();
@@ -239,23 +256,26 @@ pub struct Build {
 
 impl Build {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let (max_depth, files, num_files, num_dirs) = self.target_files(&ctx)?;
-        log::info!("max_depth: {}, files: {}", max_depth, files.len());
+        let target_entries = self.target_entries(&ctx)?;
+        let max_depth = target_entries.max_depth;
+        log::info!("max_depth: {}, files: {}", max_depth, target_entries.files.len());
 
-        let pb = BuildProgressBar::new(num_files, num_dirs, self.progress);
-        let object = parallel_walk(&ctx, &pb, files, max_depth, HashMap::new())?;
-        pb.finish();
+        let object = {
+            let pb = BuildProgressBar::new(target_entries.num_files, target_entries.num_dirs, self.progress);
+            parallel_walk(&ctx, &pb, target_entries.files, max_depth, HashMap::new())?
+        };
 
-        if self.no_write_head {
-            println!("HEAD: {}", object.object_id);
-        } else {
-            ctx.write_head(&object.object_id)?;
-            println!("Written HEAD: {}", object.object_id);
+        match self.no_write_head {
+            true => println!("HEAD: {}", object.object_id),
+            false => {
+                ctx.write_head(&object.object_id)?;
+                println!("Written HEAD: {}", object.object_id);
+            },
         }
         Ok(())
     }
 
-    fn target_files(&self, ctx: &Context) -> anyhow::Result<(usize, Vec<FileEntry>, u64, u64)> {
+    fn target_entries(&self, ctx: &Context) -> anyhow::Result<TargetEntries> {
         let Some(input) = &self.input else {
             return list_all_files(&ctx, self.hidden);
         };
@@ -270,39 +290,31 @@ impl Build {
             BufReaderWrapper::new(Box::new(reader))
         };
 
-        let mut files = 0;
-        let mut dirs = 0;
-        let mut max_depth = 0;
-        let mut ret = Vec::new();
-
+        let mut entries = TargetEntries::new();
         for line in input {
             let line = line?;
-            let file_path = line.trim();
+            let relative_path = line.trim();
 
-            let is_dir = file_path.ends_with('/');
-            let file_path = file_path.trim_start_matches("./").trim_end_matches('/');
-            let depth = file_path.split('/').count();
-            max_depth = max_depth.max(depth);
+            let is_dir = relative_path.ends_with('/');
+            let relative_path = relative_path.trim_start_matches("./").trim_end_matches('/');
+            let depth = relative_path.split('/').count();
 
-            let path = PathBuf::from(file_path);
-            if is_ignore_dir(&path) {
+            let relative_path = PathBuf::from(relative_path);
+            if is_ignore_dir(&relative_path) {
                 continue;
             }
-            if path.is_absolute() {
+            if relative_path.is_absolute() {
                 return Err(anyhow!("absolute path is not supported"));
             }
 
             if is_dir {
-                dirs += 1;
-                ret.push(FileEntry::new_dir(&path, depth));
+                entries.push_file_entry(FileEntry::new_dir(relative_path, depth));
             } else {
-                files += 1;
-                ret.push(FileEntry::new_file(&path, depth));
+                entries.push_file_entry(FileEntry::new_file(relative_path, depth));
             }
         }
-        ret.push(FileEntry::new_dir(PathBuf::from("."), 0));
-
-        Ok((max_depth, ret, files, dirs))
+        entries.push_file_entry(FileEntry::new_dir(PathBuf::from("."), 0));
+        Ok(entries)
     }
 }
 
@@ -356,9 +368,9 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let (max_depth, files, _, _) = list_all_files(&ctx, false)?;
-        log::info!("max_depth: {}, files: {}", max_depth, files.len());
-        for file in files {
+        let target_entries = list_all_files(&ctx, false)?;
+        log::info!("max_depth: {}, files: {}", target_entries.max_depth, target_entries.files.len());
+        for file in target_entries.files {
             if file.path == PathBuf::from("") {
                 println!("{} .", file.mode);
                 continue;
