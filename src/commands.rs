@@ -418,6 +418,14 @@ impl GCCommand {
         self.mark_used_object(&ctx, &head_object, &mut objects)
             .expect("mark_used_object");
 
+        let object_refs = ctx.list_object_refs()?;
+        for object_ref in object_refs {
+            let object_id = ctx
+                .deref_object_ref(&object_ref)
+                .expect("failed to parse");
+            self.mark_used_object(&ctx, &object_id, &mut objects).expect("mark_used_object");
+        }
+
         let mut deleted_objects = 0u64;
         let mut deleted_bytes = 0u64;
         for (path, used) in objects {
