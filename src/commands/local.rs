@@ -15,7 +15,7 @@ use rayon::prelude::*;
 use crate::progress::BuildProgressBar;
 use crate::{Context, Object, ObjectID, ObjectType, MTL_DIR};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FileEntry {
     mode: ObjectType,
     path: PathBuf,
@@ -68,10 +68,7 @@ impl TargetEntries {
     }
 }
 
-fn list_all_files(
-    ctx: &Context,
-    hidden: bool,
-) -> anyhow::Result<TargetEntries> {
+fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> {
     let (tx, rx) = crossbeam_channel::bounded::<FileEntry>(100);
     let output_thread = std::thread::spawn(move || {
         let mut entries = TargetEntries::new();
@@ -155,12 +152,18 @@ fn process_tree_content(
         None => return Ok(None), // empty dir
     };
 
-    let file_name = PathBuf::from(entry.path.file_name().ok_or(io::Error::new(
-        io::ErrorKind::NotFound,
-        "failed to get file_name",
-    ))?);
-    let object_id = ctx.write_tree_contents(&objects)?;
-    Ok(Some(Object::new_tree(object_id, file_name)))
+    match entry.path.file_name() {
+        Some(file_name) => {
+            let file_name = PathBuf::from(file_name);
+            let object_id = ctx.write_tree_contents(&objects)?;
+            Ok(Some(Object::new_tree(object_id, file_name)))
+        }
+        None => {
+            // root dir
+            let object_id = ctx.write_tree_contents(&objects)?;
+            Ok(Some(Object::new_tree(object_id, PathBuf::from(""))))
+        }
+    }
 }
 
 fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> {
@@ -175,62 +178,63 @@ fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> 
     Ok(Object::new_file(object_id, file_name))
 }
 
-fn parallel_walk(
+fn process_target_entries(
     ctx: &Context,
     pb: &BuildProgressBar,
     files: Vec<FileEntry>,
-    depth: usize,
-    map: HashMap<PathBuf, Vec<Object>>,
+    max_depth: usize,
 ) -> io::Result<Object> {
-    if depth == 0 {
-        assert!(map.len() == 1);
-
-        let path = PathBuf::from("");
-        let mut objects = map
-            .get(&path)
-            .ok_or(io::Error::new(io::ErrorKind::NotFound, "not found"))?
-            .clone();
-        objects.par_sort_unstable();
-
-        let object_id = ctx.write_tree_contents(&objects)?;
-
-        let (file, dir) = objects.iter().partition::<Vec<_>, _>(|o| o.is_file());
-        pb.inc_file(file.len() as u64);
-        pb.inc_dir(dir.len() as u64);
-
-        return Ok(Object::new_tree(object_id, path));
-    }
-    let (target, rest) = files
+    let (files, mut dirs) = files
         .into_iter()
-        .partition::<Vec<_>, _>(|entry| entry.depth == depth);
+        .partition::<Vec<_>, _>(|entry| matches!(entry.mode, ObjectType::File));
 
-    let new_map = target
-        .par_iter()
-        .fold(
-            HashMap::new,
-            |mut m: HashMap<PathBuf, Vec<Object>>, entry| {
-                let object = match entry.mode {
-                    ObjectType::Tree => {
-                        pb.inc_dir(1);
-                        match process_tree_content(ctx, &map, &entry).unwrap() {
-                            Some(object) => object,
-                            None => return m,
-                        }
-                    }
-                    ObjectType::File => {
-                        pb.inc_file(1);
-                        process_file_content(ctx, &entry).unwrap()
-                    }
+    let mut objects_per_dir = files
+        .into_par_iter()
+        .fold(HashMap::new, |mut acc, entry| {
+            let parent = match entry.path.parent() {
+                Some(parent) => PathBuf::from(parent),
+                None => PathBuf::from(""),
+            };
+            let object = process_file_content(ctx, &entry).expect("failed to process file content");
+            acc.entry(parent).or_insert(vec![]).push(object);
+
+            pb.inc_file(1);
+            acc
+        })
+        .reduce(HashMap::new, merge_hashmap);
+
+    for i in (1..max_depth).rev() {
+        let (target, rest) = dirs
+            .into_iter()
+            .partition::<Vec<_>, _>(|entry| entry.depth == i);
+        dirs = rest;
+
+        let tmp = target
+            .into_par_iter()
+            .fold(HashMap::new, |mut acc, entry| {
+                let parent = match entry.path.parent() {
+                    Some(parent) => PathBuf::from(parent),
+                    None => PathBuf::from(""),
                 };
 
-                let parent = entry.path.parent().unwrap();
-                let parent = PathBuf::from(parent);
-                m.entry(parent).or_insert(vec![]).push(object);
-                m
-            },
-        )
-        .reduce(HashMap::new, merge_hashmap);
-    parallel_walk(ctx, pb, rest, depth - 1, new_map)
+                match process_tree_content(ctx, &objects_per_dir, &entry).unwrap() {
+                    Some(object) => acc.entry(parent).or_insert(vec![]).push(object),
+                    None => {}
+                }
+                pb.inc_dir(1);
+
+                acc
+            })
+            .reduce(HashMap::new, merge_hashmap);
+        objects_per_dir = merge_hashmap(objects_per_dir, tmp);
+    }
+
+    let root = PathBuf::from("");
+    let mut objects = objects_per_dir.remove(&root).unwrap();
+    objects.par_sort_unstable();
+
+    let object_id = ctx.write_tree_contents(&objects)?;
+    Ok(Object::new_tree(object_id, root))
 }
 
 #[derive(Args, Debug)]
@@ -258,11 +262,19 @@ impl Build {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let target_entries = self.target_entries(&ctx)?;
         let max_depth = target_entries.max_depth;
-        log::info!("max_depth: {}, files: {}", max_depth, target_entries.files.len());
+        log::info!(
+            "max_depth: {}, files: {}",
+            max_depth,
+            target_entries.files.len()
+        );
 
         let object = {
-            let pb = BuildProgressBar::new(target_entries.num_files, target_entries.num_dirs, self.progress);
-            parallel_walk(&ctx, &pb, target_entries.files, max_depth, HashMap::new())?
+            let pb = BuildProgressBar::new(
+                target_entries.num_files,
+                target_entries.num_dirs,
+                self.progress,
+            );
+            process_target_entries(&ctx, &pb, target_entries.files, max_depth)?
         };
 
         match self.no_write_head {
@@ -270,7 +282,7 @@ impl Build {
             false => {
                 ctx.write_head(&object.object_id)?;
                 println!("Written HEAD: {}", object.object_id);
-            },
+            }
         }
         Ok(())
     }
@@ -369,7 +381,11 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let target_entries = list_all_files(&ctx, false)?;
-        log::info!("max_depth: {}, files: {}", target_entries.max_depth, target_entries.files.len());
+        log::info!(
+            "max_depth: {}, files: {}",
+            target_entries.max_depth,
+            target_entries.files.len()
+        );
         for file in target_entries.files {
             if file.path == PathBuf::from("") {
                 println!("{} .", file.mode);
