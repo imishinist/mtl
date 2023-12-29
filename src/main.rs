@@ -2,7 +2,7 @@ use std::{io, time};
 
 use clap::{Parser, Subcommand};
 
-use mtl::{CatObjectCommand, DiffCommand, GCCommand, LocalCommand, PrintTreeCommand};
+use mtl::{CatObjectCommand, DiffCommand, GCCommand, LocalCommand, PrintTreeCommand, RefCommand};
 
 /// MTL is a tool that recursively computes hash values for files.
 #[derive(Parser)]
@@ -18,6 +18,9 @@ enum Commands {
     /// Run a command locally
     #[command(subcommand)]
     Local(LocalCommand),
+
+    #[command(subcommand)]
+    Ref(RefCommand),
 
     /// Print the content of an object
     CatObject(CatObjectCommand),
@@ -54,6 +57,7 @@ fn main() -> io::Result<()> {
     let mtl = MTLCommands::parse();
     match &mtl.commands {
         Commands::Local(local) => local.run()?,
+        Commands::Ref(ref_command) => ref_command.run()?,
         Commands::CatObject(cat_object) => cat_object.run()?,
         Commands::Diff(diff) => diff.run()?,
         Commands::GC(gc) => gc.run()?,

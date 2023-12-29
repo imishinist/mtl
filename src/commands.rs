@@ -1,4 +1,5 @@
 pub mod local;
+mod r#ref;
 
 use std::collections::HashMap;
 use std::io::BufWriter;
@@ -26,6 +27,24 @@ impl LocalCommand {
         match self {
             LocalCommand::Build(cmd) => cmd.run(),
             LocalCommand::List(cmd) => cmd.run(),
+        }
+    }
+}
+
+#[derive(Subcommand)]
+pub enum RefCommand {
+    // List references
+    // List(r#ref::List),
+    /// Save a reference
+    Save(r#ref::Save),
+    // Delete a reference
+    // Delete(r#ref::Delete),
+}
+
+impl RefCommand {
+    pub fn run(&self) -> io::Result<()> {
+        match self {
+            RefCommand::Save(cmd) => cmd.run(),
         }
     }
 }

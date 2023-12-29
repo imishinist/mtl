@@ -296,6 +296,16 @@ impl Context {
         }
     }
 
+    pub fn write_object_ref<S: AsRef<str>>(
+        &self,
+        ref_name: S,
+        object_id: ObjectID,
+    ) -> io::Result<()> {
+        let reference_file = self.reference_file(ref_name.as_ref());
+        fs::write(reference_file, object_id.to_string())?;
+        Ok(())
+    }
+
     pub fn write_tree_contents<T: AsRef<Object>>(&self, entries: &[T]) -> io::Result<ObjectID> {
         let tree_contents = serialize_entries(&entries)?;
         let object_id = ObjectID::from_contents(&tree_contents);
