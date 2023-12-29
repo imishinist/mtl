@@ -243,8 +243,7 @@ pub struct Build {
 
 impl Build {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let (max_depth, files, num_files, num_dirs) =
-            self.target_files(&ctx).expect("failed to list all files");
+        let (max_depth, files, num_files, num_dirs) = self.target_files(&ctx)?;
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
 
         let pb = BuildProgressBar::new(num_files, num_dirs, self.progress);
@@ -365,8 +364,7 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let (max_depth, files, _, _) =
-            list_all_files(&ctx, false).expect("failed to list all files");
+        let (max_depth, files, _, _) = list_all_files(&ctx, false)?;
         log::info!("max_depth: {}, files: {}", max_depth, files.len());
         for file in files {
             if file.path == PathBuf::from("") {

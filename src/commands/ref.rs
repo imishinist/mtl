@@ -15,9 +15,7 @@ impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let refs = ctx.list_object_refs()?;
         for object_ref in refs {
-            let object_id = ctx
-                .deref_object_ref(&object_ref)
-                .expect("invalid object id");
+            let object_id = ctx.deref_object_ref(&object_ref)?;
             println!("{}\t{}", object_ref, object_id);
         }
         Ok(())
@@ -40,7 +38,7 @@ pub struct Save {
 impl Save {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = match self.object_id {
-            Some(ref object_id) => ctx.deref_object_ref(object_id).expect("invalid object id"),
+            Some(ref object_id) => ctx.deref_object_ref(object_id)?,
             None => ctx.read_head()?,
         };
 

@@ -66,11 +66,9 @@ pub struct CatObjectCommand {
 
 impl CatObjectCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let object_id = ctx
-            .deref_object_ref(&self.object_id)
-            .expect("failed to parse");
-        let file_name = ctx.object_file(&object_id);
-        let contents = fs::read_to_string(file_name)?;
+        let object_id = ctx.deref_object_ref(&self.object_id)?;
+        let object_file = ctx.object_file(&object_id);
+        let contents = fs::read_to_string(object_file)?;
         print!("{}", contents);
 
         Ok(())
@@ -96,12 +94,8 @@ pub struct DiffCommand {
 
 impl DiffCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let object_a = ctx
-            .deref_object_ref(&self.object_a)
-            .expect("failed to parse");
-        let object_b = ctx
-            .deref_object_ref(&self.object_b)
-            .expect("failed to parse");
+        let object_a = ctx.deref_object_ref(&self.object_a)?;
+        let object_b = ctx.deref_object_ref(&self.object_b)?;
         Self::print_diff(&ctx, &object_a, &object_b, self.max_depth)?;
 
         Ok(())
@@ -112,7 +106,7 @@ impl DiffCommand {
         object_a_id: &ObjectID,
         object_b_id: &ObjectID,
         max_depth: Option<usize>,
-    ) -> io::Result<()> {
+    ) -> anyhow::Result<()> {
         let object_a = Object::new_tree(object_a_id.clone(), ".");
         let object_b = Object::new_tree(object_b_id.clone(), ".");
         Self::print_difference("", Some(&object_a), Some(&object_b))?;
@@ -126,7 +120,7 @@ impl DiffCommand {
         object_b: &ObjectID,
         max_depth: Option<usize>,
         depth: usize,
-    ) -> io::Result<()> {
+    ) -> anyhow::Result<()> {
         if object_a == object_b {
             return Ok(());
         }
@@ -137,8 +131,8 @@ impl DiffCommand {
         }
 
         let parent = parent.as_ref();
-        let tree_a = ctx.read_tree_contents(object_a).expect("tree_a");
-        let tree_b = ctx.read_tree_contents(object_b).expect("tree_b");
+        let tree_a = ctx.read_tree_contents(object_a)?;
+        let tree_b = ctx.read_tree_contents(object_b)?;
 
         let diff = similar::capture_diff_slices(Algorithm::Myers, &tree_a, &tree_b);
         for op in diff {
@@ -290,7 +284,7 @@ pub struct PrintTreeCommand {
 impl PrintTreeCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = match self.root {
-            Some(ref object_id) => ctx.deref_object_ref(object_id).expect("failed to parse"),
+            Some(ref object_id) => ctx.deref_object_ref(object_id)?,
             None => ctx.read_head()?,
         };
         let object_type = self.r#type.as_ref();
@@ -306,7 +300,7 @@ impl PrintTreeCommand {
         object_id: &ObjectID,
         object_type: Option<&ObjectType>,
         max_depth: Option<usize>,
-    ) -> io::Result<()> {
+    ) -> anyhow::Result<()> {
         let stdout = io::stdout();
         let mut stdout = BufWriter::new(stdout.lock());
         Self::inner_print_tree(ctx, &mut stdout, "", object_id, object_type, max_depth, 0)
@@ -320,7 +314,7 @@ impl PrintTreeCommand {
         object_type: Option<&ObjectType>,
         max_depth: Option<usize>,
         depth: usize,
-    ) -> io::Result<()> {
+    ) -> anyhow::Result<()> {
         if let Some(max_depth) = max_depth {
             if depth >= max_depth {
                 return Ok(());
@@ -328,7 +322,7 @@ impl PrintTreeCommand {
         }
 
         let parent = parent.into();
-        let objects = ctx.read_tree_contents(object_id).unwrap();
+        let objects = ctx.read_tree_contents(object_id)?;
         for object in &objects {
             let file_name = parent.join(&object.file_name);
 
@@ -382,14 +376,12 @@ impl GCCommand {
             .iter()
             .map(|x| (x.to_path_buf(), false))
             .collect::<HashMap<_, _>>();
-        self.mark_used_object(&ctx, &head_object, &mut objects)
-            .expect("mark_used_object");
+        self.mark_used_object(&ctx, &head_object, &mut objects)?;
 
         let object_refs = ctx.list_object_refs()?;
         for object_ref in object_refs {
-            let object_id = ctx.deref_object_ref(&object_ref).expect("failed to parse");
-            self.mark_used_object(&ctx, &object_id, &mut objects)
-                .expect("mark_used_object");
+            let object_id = ctx.deref_object_ref(&object_ref)?;
+            self.mark_used_object(&ctx, &object_id, &mut objects)?;
         }
 
         let mut deleted_objects = 0u64;
@@ -428,7 +420,7 @@ impl GCCommand {
         ctx: &Context,
         root_object: &ObjectID,
         objects: &mut HashMap<PathBuf, bool>,
-    ) -> Result<(), ParseError> {
+    ) -> anyhow::Result<(), ParseError> {
         let root_path = ctx.object_file(root_object);
         objects.insert(root_path, true);
 
