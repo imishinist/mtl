@@ -28,6 +28,6 @@ path_a=$(./tools/build-by-revision.sh $revision_a 2>/dev/null | grep "Generated"
 path_b=$(./tools/build-by-revision.sh $revision_b 2>/dev/null | grep "Generated" | cut -d" " -f3)
 
 hyperfine $hyperfine_params \
-  "$(pwd)/$path_a local build -d $dir" \
-  "$(pwd)/$path_b local build -d $dir"
+  "$(pwd)/$path_a -d $dir local build" \
+  "$(pwd)/$path_b -d $dir local build"
 
