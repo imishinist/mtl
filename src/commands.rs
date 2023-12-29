@@ -33,18 +33,22 @@ impl LocalCommand {
 
 #[derive(Subcommand)]
 pub enum RefCommand {
-    // List references
-    // List(r#ref::List),
+    /// List references
+    List(r#ref::List),
+
     /// Save a reference
     Save(r#ref::Save),
-    // Delete a reference
-    // Delete(r#ref::Delete),
+
+    /// Delete a reference
+    Delete(r#ref::Delete),
 }
 
 impl RefCommand {
     pub fn run(&self) -> io::Result<()> {
         match self {
+            RefCommand::List(cmd) => cmd.run(),
             RefCommand::Save(cmd) => cmd.run(),
+            RefCommand::Delete(cmd) => cmd.run(),
         }
     }
 }

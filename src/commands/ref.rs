@@ -4,6 +4,31 @@ use std::path::PathBuf;
 use std::{env, io};
 
 #[derive(Args, Debug)]
+pub struct List {
+    /// Working directory.
+    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
+    dir: Option<PathBuf>,
+}
+
+impl List {
+    pub fn run(&self) -> io::Result<()> {
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
+
+        let ctx = Context::new(&dir);
+        let refs = ctx.list_object_refs()?;
+        for object_ref in refs {
+            println!("{}", object_ref);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
 pub struct Save {
     /// Working directory.
     #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
@@ -33,6 +58,32 @@ impl Save {
 
         ctx.write_object_ref(&self.ref_name, object_id)?;
         println!("Save \"{}\" to \"{}\"", object_id, self.ref_name);
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct Delete {
+    /// Working directory.
+    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
+    dir: Option<PathBuf>,
+
+    #[clap(value_name = "ref-name")]
+    ref_name: String,
+}
+
+impl Delete {
+    pub fn run(&self) -> io::Result<()> {
+        let dir = self
+            .dir
+            .as_ref()
+            .unwrap_or(&env::current_dir()?)
+            .canonicalize()?;
+        log::info!("dir: {}", dir.display());
+
+        let ctx = Context::new(&dir);
+        ctx.delete_object_ref(&self.ref_name)?;
+        println!("\"{}\" deleted", self.ref_name);
         Ok(())
     }
 }

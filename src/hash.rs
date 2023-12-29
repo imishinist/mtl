@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::{fmt, fs, io};
 
-#[derive(Debug, PartialEq, Clone, Copy, Eq, std::hash::Hash)]
+#[derive(Debug, PartialEq, Clone, Copy, Eq, std::hash::Hash, PartialOrd, Ord)]
 pub struct Hash {
     xxh3: u64,
 }

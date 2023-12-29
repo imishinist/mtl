@@ -52,7 +52,7 @@ impl FromStr for ObjectType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, std::hash::Hash)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, std::hash::Hash, PartialOrd, Ord)]
 pub struct ObjectID {
     inner: Hash,
 }
@@ -117,6 +117,28 @@ impl FromStr for ObjectRef {
         match ObjectID::from_hex(s) {
             Ok(object_id) => Ok(ObjectRef::new_id(object_id)),
             Err(_) => Ok(ObjectRef::new_reference(s)),
+        }
+    }
+}
+
+impl PartialOrd for ObjectRef {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (ObjectRef::Reference(a), ObjectRef::Reference(b)) => a.partial_cmp(b),
+            (ObjectRef::ID(a), ObjectRef::ID(b)) => a.partial_cmp(b),
+            (ObjectRef::Reference(_), ObjectRef::ID(_)) => Some(Ordering::Less),
+            (ObjectRef::ID(_), ObjectRef::Reference(_)) => Some(Ordering::Greater),
+        }
+    }
+}
+
+impl Ord for ObjectRef {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (ObjectRef::Reference(a), ObjectRef::Reference(b)) => a.cmp(b),
+            (ObjectRef::ID(a), ObjectRef::ID(b)) => a.cmp(b),
+            (ObjectRef::Reference(_), ObjectRef::ID(_)) => Ordering::Less,
+            (ObjectRef::ID(_), ObjectRef::Reference(_)) => Ordering::Greater,
         }
     }
 }
@@ -296,6 +318,33 @@ impl Context {
         }
     }
 
+    pub fn list_object_refs(&self) -> io::Result<Vec<ObjectRef>> {
+        let dir_name = self.root_dir.as_path().join(MTL_DIR).join("refs");
+
+        let mut object_refs = Vec::new();
+        for entry in fs::read_dir(dir_name)? {
+            let entry = entry?;
+
+            let ft = entry.file_type()?;
+            if ft.is_file() {
+                let reference = entry
+                    .file_name()
+                    .to_str()
+                    .unwrap()
+                    .parse::<ObjectRef>()
+                    .expect("invalid object id");
+                object_refs.push(reference);
+            } else {
+                log::warn!(
+                    "Unexpected directory in refs directory: {}",
+                    entry.path().display()
+                );
+            }
+        }
+        object_refs.sort();
+        Ok(object_refs)
+    }
+
     pub fn write_object_ref<S: AsRef<str>>(
         &self,
         ref_name: S,
@@ -303,6 +352,12 @@ impl Context {
     ) -> io::Result<()> {
         let reference_file = self.reference_file(ref_name.as_ref());
         fs::write(reference_file, object_id.to_string())?;
+        Ok(())
+    }
+
+    pub fn delete_object_ref<S: AsRef<str>>(&self, ref_name: S) -> io::Result<()> {
+        let reference_file = self.reference_file(ref_name.as_ref());
+        fs::remove_file(reference_file)?;
         Ok(())
     }
 
