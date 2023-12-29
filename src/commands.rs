@@ -1,4 +1,5 @@
 pub mod local;
+mod r#ref;
 
 use std::collections::HashMap;
 use std::io::BufWriter;
@@ -10,7 +11,7 @@ use console::{style, Style};
 use itertools::Itertools;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
-use crate::{Context, file_size, Object, ObjectID, ObjectType, ParseError};
+use crate::{file_size, Context, Object, ObjectID, ObjectRef, ObjectType, ParseError};
 
 #[derive(Subcommand)]
 pub enum LocalCommand {
@@ -30,6 +31,28 @@ impl LocalCommand {
     }
 }
 
+#[derive(Subcommand)]
+pub enum RefCommand {
+    /// List references
+    List(r#ref::List),
+
+    /// Save a reference
+    Save(r#ref::Save),
+
+    /// Delete a reference
+    Delete(r#ref::Delete),
+}
+
+impl RefCommand {
+    pub fn run(&self) -> io::Result<()> {
+        match self {
+            RefCommand::List(cmd) => cmd.run(),
+            RefCommand::Save(cmd) => cmd.run(),
+            RefCommand::Delete(cmd) => cmd.run(),
+        }
+    }
+}
+
 #[derive(Args, Debug)]
 pub struct CatObjectCommand {
     /// Directory where to run the command
@@ -38,7 +61,7 @@ pub struct CatObjectCommand {
 
     /// Object ID to print
     #[clap(value_name = "object-id")]
-    object_id: ObjectID,
+    object_id: ObjectRef,
 }
 
 impl CatObjectCommand {
@@ -52,7 +75,10 @@ impl CatObjectCommand {
 
         let ctx = Context::new(&dir);
 
-        let file_name = ctx.object_file(&self.object_id);
+        let object_id = ctx
+            .deref_object_ref(&self.object_id)
+            .expect("failed to parse");
+        let file_name = ctx.object_file(&object_id);
         let contents = fs::read_to_string(file_name)?;
         print!("{}", contents);
 
@@ -67,10 +93,10 @@ pub struct DiffCommand {
     dir: Option<PathBuf>,
 
     #[clap(value_name = "object-id")]
-    pub object_a: ObjectID,
+    pub object_a: ObjectRef,
 
     #[clap(value_name = "object-id")]
-    pub object_b: ObjectID,
+    pub object_b: ObjectRef,
 
     /// Maximum depth to print
     #[clap(long, value_name = "max-depth")]
@@ -87,7 +113,13 @@ impl DiffCommand {
         log::info!("dir: {}", dir.display());
 
         let ctx = Context::new(&dir);
-        Self::print_diff(&ctx, &self.object_a, &self.object_b, self.max_depth)?;
+        let object_a = ctx
+            .deref_object_ref(&self.object_a)
+            .expect("failed to parse");
+        let object_b = ctx
+            .deref_object_ref(&self.object_b)
+            .expect("failed to parse");
+        Self::print_diff(&ctx, &object_a, &object_b, self.max_depth)?;
 
         Ok(())
     }
@@ -261,7 +293,7 @@ pub struct PrintTreeCommand {
 
     /// Root object ID where to start printing the tree
     #[clap(long, short, value_name = "object")]
-    root: Option<ObjectID>,
+    root: Option<ObjectRef>,
 
     /// Type of objects to print
     #[clap(long, short, value_name = "type")]
@@ -283,7 +315,7 @@ impl PrintTreeCommand {
         let ctx = Context::new(&dir);
 
         let object_id = match self.root {
-            Some(ref object_id) => object_id.clone(),
+            Some(ref object_id) => ctx.deref_object_ref(object_id).expect("failed to parse"),
             None => ctx.read_head()?,
         };
         let object_type = self.r#type.as_ref();
