@@ -6,12 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.75"
+anyhow = "1.0.77"
 async-recursion = "1.0.5"
-clap = { version = "4.4.11", features = ["derive"] }
+clap = { version = "4.4.12", features = ["derive"] }
 console = "0.15.7"
-crossbeam = "0.8.2"
-crossbeam-channel = "0.5.9"
+crossbeam = "0.8.3"
+crossbeam-channel = "0.5.10"
 dhat = { version ="0.3.2", optional = true }
 env_logger = "0.10.1"
 ignore = "0.4.21"
@@ -22,15 +22,14 @@ log = "0.4.20"
 rand = "0.8.5"
 rand_distr = "0.4.3"
 rayon = "1.8.0"
-similar = { version = "2.3.0", features = ["inline"] }
-thiserror = "1.0.51"
+similar = "2.3.0"
+thiserror = "1.0.52"
 tikv-jemallocator = { version = "0.5.4", optional = true }
-tokio = { version = "1.35.0", features = ["rt-multi-thread", "fs", "macros"] }
+tokio = { version = "1.35.1", features = ["rt-multi-thread", "fs", "macros"] }
 xxhash-rust = { version = "0.8.8", features = ["xxh64", "xxh3"] }
 
 [dev-dependencies]
 criterion = "0.5.1"
-tempfile = "3.8.1"
 
 [features]
 default = []
