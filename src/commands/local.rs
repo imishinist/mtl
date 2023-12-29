@@ -242,7 +242,7 @@ pub struct Build {
 }
 
 impl Build {
-    pub fn run(&self) -> io::Result<()> {
+    pub fn run(&self) -> anyhow::Result<()> {
         let dir = self
             .dir
             .as_ref()
@@ -372,7 +372,7 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 }
 
 impl List {
-    pub fn run(&self) -> io::Result<()> {
+    pub fn run(&self) -> anyhow::Result<()> {
         let dir = self
             .dir
             .as_ref()

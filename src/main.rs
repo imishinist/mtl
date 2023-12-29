@@ -1,8 +1,8 @@
-use std::{io, time};
+use std::time;
 
 use clap::{Parser, Subcommand};
 
-use mtl::{CatObjectCommand, DiffCommand, GCCommand, LocalCommand, PrintTreeCommand, RefCommand};
+use mtl::commands;
 
 /// MTL is a tool that recursively computes hash values for files.
 #[derive(Parser)]
@@ -17,22 +17,23 @@ struct MTLCommands {
 enum Commands {
     /// Run a command locally
     #[command(subcommand)]
-    Local(LocalCommand),
+    Local(commands::LocalCommand),
 
+    /// Reference of object
     #[command(subcommand)]
-    Ref(RefCommand),
+    Ref(commands::RefCommand),
 
     /// Print the content of an object
-    CatObject(CatObjectCommand),
+    CatObject(commands::CatObjectCommand),
 
     /// Diff two tree objects
-    Diff(DiffCommand),
+    Diff(commands::DiffCommand),
 
     /// Run garbage collection
-    GC(GCCommand),
+    GC(commands::GCCommand),
 
     /// Print the tree of objects
-    PrintTree(PrintTreeCommand),
+    PrintTree(commands::PrintTreeCommand),
 }
 
 #[cfg(feature = "dhat-heap")]
@@ -46,7 +47,7 @@ fn setup_signal_handler() {
     }
 }
 
-fn main() -> io::Result<()> {
+fn main() -> anyhow::Result<()> {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::new_heap();
 

@@ -4,7 +4,6 @@ pub(crate) mod filesystem;
 pub mod hash;
 pub(crate) mod progress;
 
-pub use commands::*;
 pub use error::*;
 pub use filesystem::*;
 

@@ -1,7 +1,9 @@
-use crate::{Context, ObjectRef};
-use clap::Args;
+use std::env;
 use std::path::PathBuf;
-use std::{env, io};
+
+use clap::Args;
+
+use crate::{Context, ObjectRef};
 
 #[derive(Args, Debug)]
 pub struct List {
@@ -11,7 +13,7 @@ pub struct List {
 }
 
 impl List {
-    pub fn run(&self) -> io::Result<()> {
+    pub fn run(&self) -> anyhow::Result<()> {
         let dir = self
             .dir
             .as_ref()
@@ -22,7 +24,9 @@ impl List {
         let ctx = Context::new(&dir);
         let refs = ctx.list_object_refs()?;
         for object_ref in refs {
-            let object_id = ctx.deref_object_ref(&object_ref).expect("invalid object id");
+            let object_id = ctx
+                .deref_object_ref(&object_ref)
+                .expect("invalid object id");
             println!("{}\t{}", object_ref, object_id);
         }
         Ok(())
@@ -43,7 +47,7 @@ pub struct Save {
 }
 
 impl Save {
-    pub fn run(&self) -> io::Result<()> {
+    pub fn run(&self) -> anyhow::Result<()> {
         let dir = self
             .dir
             .as_ref()
@@ -74,7 +78,7 @@ pub struct Delete {
 }
 
 impl Delete {
-    pub fn run(&self) -> io::Result<()> {
+    pub fn run(&self) -> anyhow::Result<()> {
         let dir = self
             .dir
             .as_ref()
