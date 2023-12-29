@@ -1,6 +1,6 @@
+use crate::ParseError;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::num::ParseIntError;
 use std::path::Path;
 use std::{fmt, fs, io};
 
@@ -18,8 +18,11 @@ impl Hash {
         Hash::new(xxh3_contents(contents))
     }
 
-    pub fn from_hex<S: AsRef<str>>(hex: S) -> Result<Self, ParseIntError> {
+    pub fn from_hex<S: AsRef<str>>(hex: S) -> Result<Self, ParseError> {
         let hex = hex.as_ref();
+        if hex.len() != 16 {
+            return Err(ParseError::InvalidFormat);
+        }
         let xxh3 = u64::from_str_radix(hex, 16)?;
         Ok(Hash::new(xxh3))
     }

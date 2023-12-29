@@ -3,7 +3,7 @@ use std::io::Write;
 
 use clap::Parser;
 use indicatif::ProgressBar;
-use rand::prelude::{Distribution, thread_rng};
+use rand::prelude::{thread_rng, Distribution};
 use rand_distr::Normal;
 use rayon::prelude::*;
 
@@ -23,7 +23,9 @@ fn split_by_prefixes<'a>(x: &'a str, prefix_bytes: &[usize]) -> (std::path::Path
 
 fn generate_bytes(normal: &mut Normal<f64>) -> Vec<u8> {
     let need_bytes = normal.sample(&mut thread_rng()) as usize;
-    (0..need_bytes).map(|_| rand::random::<u8>()).collect::<Vec<_>>()
+    (0..need_bytes)
+        .map(|_| rand::random::<u8>())
+        .collect::<Vec<_>>()
 }
 
 #[derive(Debug, Parser)]
@@ -51,7 +53,11 @@ async fn async_main() -> std::io::Result<()> {
     (0..cli.nfile).into_par_iter().for_each(|_i| {
         pb.inc(1);
 
-        let mut normal = Normal::new((cli.num_kilobytes * 1024) as f64, (cli.num_kilobytes_stddev * 1024) as f64).unwrap();
+        let mut normal = Normal::new(
+            (cli.num_kilobytes * 1024) as f64,
+            (cli.num_kilobytes_stddev * 1024) as f64,
+        )
+        .unwrap();
 
         let random_contents = generate_bytes(&mut normal);
         let hash = Hash::from_contents(&random_contents);

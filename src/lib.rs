@@ -12,7 +12,6 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
-use std::num::ParseIntError;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -63,7 +62,7 @@ impl ObjectID {
         ObjectID { inner: hash }
     }
 
-    pub fn from_hex<S: AsRef<str>>(hex: S) -> Result<Self, ParseIntError> {
+    pub fn from_hex<S: AsRef<str>>(hex: S) -> Result<Self, ParseError> {
         Ok(ObjectID::new(Hash::from_hex(hex)?))
     }
 
@@ -87,6 +86,42 @@ impl FromStr for ObjectID {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
+pub enum ObjectRef {
+    Reference(String),
+    ID(ObjectID),
+}
+
+impl ObjectRef {
+    pub fn new_reference<S: Into<String>>(reference: S) -> Self {
+        ObjectRef::Reference(reference.into())
+    }
+
+    pub fn new_id(object_id: ObjectID) -> Self {
+        ObjectRef::ID(object_id)
+    }
+}
+
+impl fmt::Display for ObjectRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            ObjectRef::Reference(reference) => write!(f, "{}", reference),
+            ObjectRef::ID(object_id) => write!(f, "{}", object_id),
+        }
+    }
+}
+
+impl FromStr for ObjectRef {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match ObjectID::from_hex(s) {
+            Ok(object_id) => Ok(ObjectRef::new_id(object_id)),
+            Err(_) => Ok(ObjectRef::new_reference(s)),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub struct Object {
     object_type: ObjectType,
     object_id: ObjectID,
@@ -96,7 +131,11 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn new<P: Into<PathBuf>>(object_type: ObjectType, object_id: ObjectID, file_name: P) -> Self {
+    pub fn new<P: Into<PathBuf>>(
+        object_type: ObjectType,
+        object_id: ObjectID,
+        file_name: P,
+    ) -> Self {
         Object {
             object_type,
             object_id,
@@ -231,6 +270,30 @@ impl Context {
     pub fn head_file(&self) -> PathBuf {
         let head_name = self.root_dir.as_path();
         head_name.join(MTL_DIR).join("HEAD")
+    }
+
+    pub fn reference_file(&self, reference: &str) -> PathBuf {
+        let reference_name = self.root_dir.as_path();
+        reference_name.join(MTL_DIR).join("refs").join(reference)
+    }
+
+    pub fn deref_object_ref(&self, object_ref: &ObjectRef) -> Result<ObjectID, ParseError> {
+        match object_ref {
+            ObjectRef::Reference(reference) => {
+                if reference == "HEAD" {
+                    return Ok(self.read_head()?);
+                }
+
+                let reference_file = self.reference_file(reference);
+                let reference_contents = fs::read_to_string(reference_file)?;
+                let reference_contents = reference_contents.trim();
+
+                reference_contents
+                    .parse()
+                    .map_err(|e| ParseError::InvalidToken(e))
+            }
+            ObjectRef::ID(object_id) => Ok(object_id.clone()),
+        }
     }
 
     pub fn write_tree_contents<T: AsRef<Object>>(&self, entries: &[T]) -> io::Result<ObjectID> {
@@ -386,5 +449,21 @@ mod tests {
         assert_eq!(objects[2].size(), 27);
         assert_eq!(objects[3].size(), 26);
         assert_eq!(objects[4].size(), 29);
+    }
+
+    #[test]
+    fn test_object_ref() {
+        assert_eq!(
+            "d447b1ea40e6988b".parse::<ObjectRef>().unwrap(),
+            ObjectRef::new_id(ObjectID::from_hex("d447b1ea40e6988b").unwrap())
+        );
+        assert_eq!(
+            "d447b1ea40e6988".parse::<ObjectRef>().unwrap(),
+            ObjectRef::new_reference("d447b1ea40e6988")
+        );
+        assert_eq!(
+            "invalid_hex".parse::<ObjectRef>().unwrap(),
+            ObjectRef::new_reference("invalid_hex")
+        );
     }
 }
