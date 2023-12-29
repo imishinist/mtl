@@ -218,10 +218,6 @@ fn parallel_walk(
 
 #[derive(Args, Debug)]
 pub struct Build {
-    /// Working directory.
-    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
-    dir: Option<PathBuf>,
-
     /// The input file containing a list of files to be scanned.
     /// By default, it scans all files in the current directory.
     /// If you want to receive from standard input, specify "-".
@@ -311,11 +307,7 @@ impl Build {
 }
 
 #[derive(Args, Debug)]
-pub struct List {
-    /// Working directory.
-    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
-    dir: Option<PathBuf>,
-}
+pub struct List {}
 
 fn format_filetype(mode: &fs::FileType) -> &'static str {
     #[cfg(unix)]

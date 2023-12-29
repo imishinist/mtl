@@ -1,15 +1,9 @@
-use std::path::PathBuf;
-
 use clap::Args;
 
 use crate::{Context, ObjectRef};
 
 #[derive(Args, Debug)]
-pub struct List {
-    /// Working directory.
-    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
-    dir: Option<PathBuf>,
-}
+pub struct List {}
 
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
@@ -24,10 +18,6 @@ impl List {
 
 #[derive(Args, Debug)]
 pub struct Save {
-    /// Working directory.
-    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
-    dir: Option<PathBuf>,
-
     #[clap(value_name = "ref-name")]
     ref_name: String,
 
@@ -50,10 +40,6 @@ impl Save {
 
 #[derive(Args, Debug)]
 pub struct Delete {
-    /// Working directory.
-    #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
-    dir: Option<PathBuf>,
-
     #[clap(value_name = "ref-name")]
     ref_name: String,
 }

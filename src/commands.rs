@@ -55,10 +55,6 @@ impl RefCommand {
 
 #[derive(Args, Debug)]
 pub struct CatObjectCommand {
-    /// Directory where to run the command
-    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
-    dir: Option<PathBuf>,
-
     /// Object ID to print
     #[clap(value_name = "object-id")]
     object_id: ObjectRef,
@@ -77,10 +73,6 @@ impl CatObjectCommand {
 
 #[derive(Args, Debug)]
 pub struct DiffCommand {
-    /// Directory where to run the command
-    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
-    dir: Option<PathBuf>,
-
     #[clap(value_name = "object-id")]
     pub object_a: ObjectRef,
 
@@ -264,10 +256,6 @@ impl DiffCommand {
 
 #[derive(Args, Debug)]
 pub struct PrintTreeCommand {
-    /// Directory where to run the command
-    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
-    dir: Option<PathBuf>,
-
     /// Root object ID where to start printing the tree
     #[clap(long, short, value_name = "object")]
     root: Option<ObjectRef>,
@@ -359,10 +347,6 @@ impl PrintTreeCommand {
 
 #[derive(Debug, Args)]
 pub struct GCCommand {
-    /// Directory where to run the command
-    #[clap(long, short, value_name = "dir", value_hint = clap::ValueHint::DirPath)]
-    dir: Option<PathBuf>,
-
     /// Dry run
     #[clap(long = "dry", short = 'n', default_value_t = false)]
     dry_run: bool,
