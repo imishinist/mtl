@@ -40,25 +40,24 @@ impl fmt::Display for ObjectType {
 }
 
 impl FromStr for ObjectType {
-    type Err = String;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "tree" => Ok(ObjectType::Tree),
             "file" => Ok(ObjectType::File),
-            _ => Err(format!("{} is not a valid object type", s)),
+            "" => Err(ParseError::EmptyToken),
+            s => Err(ParseError::InvalidToken(s.to_string())),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, std::hash::Hash, PartialOrd, Ord)]
-pub struct ObjectID {
-    inner: Hash,
-}
+pub struct ObjectID(Hash);
 
 impl ObjectID {
     pub fn new(hash: Hash) -> Self {
-        ObjectID { inner: hash }
+        ObjectID(hash)
     }
 
     pub fn from_hex<S: AsRef<str>>(hex: S) -> Result<Self, ParseError> {
@@ -72,15 +71,15 @@ impl ObjectID {
 
 impl fmt::Display for ObjectID {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        self.inner.fmt(f)
+        self.0.fmt(f)
     }
 }
 
 impl FromStr for ObjectID {
-    type Err = String;
+    type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        ObjectID::from_hex(s).map_err(|e| e.to_string())
+        Ok(ObjectID::from_hex(s)?)
     }
 }
 
@@ -255,7 +254,7 @@ impl Context {
             .join(&object_string[2..])
     }
 
-    pub fn object_files(&self) -> io::Result<Vec<PathBuf>> {
+    pub fn object_files(&self) -> anyhow::Result<Vec<PathBuf>, ReadContentError> {
         let dir_name = self.root_dir.as_path();
         let object_dir = dir_name.join(MTL_DIR).join("objects");
 
@@ -298,26 +297,21 @@ impl Context {
         reference_name.join(MTL_DIR).join("refs").join(reference)
     }
 
-    pub fn deref_object_ref(&self, object_ref: &ObjectRef) -> Result<ObjectID, ParseError> {
+    pub fn deref_object_ref(&self, object_ref: &ObjectRef) -> Result<ObjectID, ReadContentError> {
         match object_ref {
+            ObjectRef::Reference(reference) if reference == "HEAD" => self.read_head(),
             ObjectRef::Reference(reference) => {
-                if reference == "HEAD" {
-                    return Ok(self.read_head()?);
-                }
+                let ref_file = self.reference_file(reference);
+                let contents = fs::read_to_string(ref_file)?;
+                let contents = contents.trim();
 
-                let reference_file = self.reference_file(reference);
-                let reference_contents = fs::read_to_string(reference_file)?;
-                let reference_contents = reference_contents.trim();
-
-                reference_contents
-                    .parse()
-                    .map_err(|e| ParseError::InvalidToken(e))
+                Ok(contents.parse()?)
             }
             ObjectRef::ID(object_id) => Ok(object_id.clone()),
         }
     }
 
-    pub fn list_object_refs(&self) -> io::Result<Vec<ObjectRef>> {
+    pub fn list_object_refs(&self) -> anyhow::Result<Vec<ObjectRef>, ReadContentError> {
         let dir_name = self.root_dir.as_path().join(MTL_DIR).join("refs");
 
         let mut object_refs = Vec::new();
@@ -326,12 +320,13 @@ impl Context {
 
             let ft = entry.file_type()?;
             if ft.is_file() {
+                // Parse as ObjectRef always succeeds
                 let reference = entry
                     .file_name()
                     .to_str()
-                    .unwrap()
-                    .parse::<ObjectRef>()
-                    .expect("invalid object id");
+                    .ok_or(ParseError::EmptyToken)?
+                    .parse()
+                    .unwrap();
                 object_refs.push(reference);
             } else {
                 log::warn!(
@@ -373,24 +368,19 @@ impl Context {
         Ok(object_id)
     }
 
-    pub fn read_tree_contents(&self, object_id: &ObjectID) -> Result<Vec<Object>, ParseError> {
+    pub fn read_tree_contents(
+        &self,
+        object_id: &ObjectID,
+    ) -> Result<Vec<Object>, ReadContentError> {
         let file_name = self.object_file(object_id);
         let tree_contents = fs::read_to_string(file_name)?;
 
         let mut objects = Vec::new();
         for line in tree_contents.lines() {
             let mut parts = line.split('\t');
-            let object_type: ObjectType = parts
-                .next()
-                .ok_or(ParseError::InvalidFormat)?
-                .parse()
-                .map_err(ParseError::InvalidToken)?;
-            let object_id: ObjectID = parts
-                .next()
-                .ok_or(ParseError::InvalidFormat)?
-                .parse()
-                .map_err(ParseError::InvalidToken)?;
-            let file_name = PathBuf::from(parts.next().ok_or(ParseError::InvalidFormat)?);
+            let object_type: ObjectType = parts.next().ok_or(ParseError::EmptyToken)?.parse()?;
+            let object_id: ObjectID = parts.next().ok_or(ParseError::EmptyToken)?.parse()?;
+            let file_name = PathBuf::from(parts.next().ok_or(ParseError::EmptyToken)?);
 
             objects.push(Object::new(object_type, object_id, file_name));
         }
@@ -405,12 +395,11 @@ impl Context {
         Ok(())
     }
 
-    pub fn read_head(&self) -> io::Result<ObjectID> {
+    pub fn read_head(&self) -> anyhow::Result<ObjectID, ReadContentError> {
         let head = fs::read_to_string(self.head_file())?;
         let head = head.trim();
 
-        head.parse()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        Ok(head.parse()?)
     }
 }
 

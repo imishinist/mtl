@@ -1,19 +1,35 @@
 use std::io;
 use std::num::ParseIntError;
 
-use thiserror::Error;
+#[derive(thiserror::Error, Debug)]
+pub enum ReadContentError {
+    #[error(transparent)]
+    IOError(#[from] io::Error),
 
-#[derive(Error, Debug)]
+    #[error(transparent)]
+    ParseError(#[from] ParseError),
+}
+
+#[derive(thiserror::Error, Debug)]
 pub enum ParseError {
-    #[error("invalid format")]
-    InvalidFormat,
+    #[error("empty token")]
+    EmptyToken,
 
-    #[error("invalid token")]
+    #[error("invalid token: \"{0}\"")]
     InvalidToken(String),
 
-    #[error("parse int error")]
-    IntError(#[from] ParseIntError),
+    #[error("invalid hash: {0}")]
+    Hash(#[from] ParseHashError),
+}
 
-    #[error("io error")]
-    IOError(#[from] io::Error),
+#[derive(thiserror::Error, Debug)]
+pub enum ParseHashError {
+    #[error("invalid hash format")]
+    InvalidFormat,
+
+    #[error("invalid hash token: \"{0}\"")]
+    InvalidToken(String),
+
+    #[error(transparent)]
+    IntError(#[from] ParseIntError),
 }

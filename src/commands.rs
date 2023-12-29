@@ -11,7 +11,7 @@ use console::{style, Style};
 use itertools::Itertools;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
-use crate::{file_size, Context, Object, ObjectID, ObjectRef, ObjectType, ParseError};
+use crate::{file_size, Context, Object, ObjectID, ObjectRef, ObjectType, ReadContentError};
 
 #[derive(Subcommand)]
 pub enum LocalCommand {
@@ -420,7 +420,7 @@ impl GCCommand {
         ctx: &Context,
         root_object: &ObjectID,
         objects: &mut HashMap<PathBuf, bool>,
-    ) -> anyhow::Result<(), ParseError> {
+    ) -> anyhow::Result<(), ReadContentError> {
         let root_path = ctx.object_file(root_object);
         objects.insert(root_path, true);
 
