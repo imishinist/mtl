@@ -15,14 +15,28 @@ use rayon::prelude::*;
 use crate::progress::BuildProgressBar;
 use crate::{Context, Object, ObjectID, ObjectType, MTL_DIR};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 struct FileEntry {
     mode: ObjectType,
     path: PathBuf,
     depth: usize,
+
+    #[cfg(unix)]
+    inode: u64,
 }
 
 impl FileEntry {
+    #[cfg(unix)]
+    fn new<P: Into<PathBuf>>(mode: ObjectType, path: P, depth: usize, inode: u64) -> Self {
+        Self {
+            mode,
+            path: path.into(),
+            depth,
+            inode,
+        }
+    }
+
+    #[cfg(not(unix))]
     fn new<P: Into<PathBuf>>(mode: ObjectType, path: P, depth: usize) -> Self {
         Self {
             mode,
@@ -30,13 +44,29 @@ impl FileEntry {
             depth,
         }
     }
+}
 
-    fn new_file<P: Into<PathBuf>>(path: P, depth: usize) -> Self {
-        Self::new(ObjectType::File, path, depth)
+impl PartialOrd for FileEntry {
+    #[cfg(unix)]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.inode.partial_cmp(&other.inode)
     }
 
-    fn new_dir<P: Into<PathBuf>>(path: P, depth: usize) -> Self {
-        Self::new(ObjectType::Tree, path, depth)
+    #[cfg(not(unix))]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.path.partial_cmp(&other.path)
+    }
+}
+
+impl Ord for FileEntry {
+    #[cfg(unix)]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.inode.cmp(&other.inode)
+    }
+
+    #[cfg(not(unix))]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.path.cmp(&other.path)
     }
 }
 
@@ -108,9 +138,31 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
             }
 
             if ft.is_dir() {
-                tx.send(FileEntry::new_dir(path, depth)).unwrap();
+                #[cfg(unix)]
+                tx.send(FileEntry::new(
+                    ObjectType::Tree,
+                    path,
+                    depth,
+                    entry.ino().unwrap(),
+                ))
+                .unwrap();
+
+                #[cfg(not(unix))]
+                tx.send(FileEntry::new(ObjectType::Tree, path, depth))
+                    .unwrap();
             } else if ft.is_file() {
-                tx.send(FileEntry::new_file(path, depth)).unwrap();
+                #[cfg(unix)]
+                tx.send(FileEntry::new(
+                    ObjectType::File,
+                    path,
+                    depth,
+                    entry.ino().unwrap(),
+                ))
+                .unwrap();
+
+                #[cfg(not(unix))]
+                tx.send(FileEntry::new(ObjectType::File, path, depth))
+                    .unwrap();
             } else {
                 log::warn!(
                     "ignored: not supported file type: {} \"{}\"",
@@ -184,6 +236,10 @@ fn process_target_entries(
     files: Vec<FileEntry>,
     max_depth: usize,
 ) -> io::Result<Object> {
+    let mut files = files;
+    #[cfg(unix)]
+    files.par_sort();
+
     let (files, mut dirs) = files
         .into_iter()
         .partition::<Vec<_>, _>(|entry| matches!(entry.mode, ObjectType::File));
@@ -320,12 +376,12 @@ impl Build {
             }
 
             if is_dir {
-                entries.push_file_entry(FileEntry::new_dir(relative_path, depth));
+                entries.push_file_entry(FileEntry::new(ObjectType::Tree, relative_path, depth, 0));
             } else {
-                entries.push_file_entry(FileEntry::new_file(relative_path, depth));
+                entries.push_file_entry(FileEntry::new(ObjectType::File, relative_path, depth, 0));
             }
         }
-        entries.push_file_entry(FileEntry::new_dir(PathBuf::from("."), 0));
+        entries.push_file_entry(FileEntry::new(ObjectType::Tree, PathBuf::from("."), 0, 0));
         Ok(entries)
     }
 }
