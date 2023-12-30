@@ -41,10 +41,6 @@ enum Commands {
     PrintTree(commands::PrintTreeCommand),
 }
 
-#[cfg(feature = "dhat-heap")]
-#[global_allocator]
-static GLOBAL: dhat::Alloc = dhat::Alloc;
-
 fn setup_signal_handler() {
     #[cfg(not(target_os = "windows"))]
     unsafe {
@@ -53,9 +49,6 @@ fn setup_signal_handler() {
 }
 
 fn main() -> anyhow::Result<()> {
-    #[cfg(feature = "dhat-heap")]
-    let _profiler = dhat::Profiler::new_heap();
-
     env_logger::init();
     setup_signal_handler();
     let start = time::Instant::now();

@@ -12,7 +12,6 @@ clap = { version = "4.4.12", features = ["derive"] }
 console = "0.15.7"
 crossbeam = "0.8.3"
 crossbeam-channel = "0.5.10"
-dhat = { version ="0.3.2", optional = true }
 env_logger = "0.10.1"
 ignore = "0.4.21"
 indicatif = { version = "0.17.7", features = ["rayon"] }
@@ -35,8 +34,6 @@ criterion = "0.5.1"
 [features]
 default = []
 jemalloc = ["tikv-jemallocator"]
-dhat-heap = ["dhat"]
-dhat-ad-hoc = ["dhat"]
 
 [lib]
 name = "mtl"
