@@ -1,0 +1,9 @@
+[tasks.TEST]
+description = "Run all test scripts"
+script = ['''
+#!/bin/bash
+while read -r line; do
+    bash $line
+done < <(find tests -name "*.sh" -type f -perm -u+x)
+''']
+dependencies = ["default"]

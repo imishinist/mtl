@@ -315,7 +315,8 @@ impl Context {
     }
 
     pub fn list_object_refs(&self) -> anyhow::Result<Vec<ObjectRef>, ReadContentError> {
-        let dir_name = self.root_dir.as_path().join(MTL_DIR).join("refs");
+        let dir_name = self.reference_dir();
+        fs::create_dir_all(&dir_name)?;
 
         let mut object_refs = Vec::new();
         for entry in fs::read_dir(dir_name)? {

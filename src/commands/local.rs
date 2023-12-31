@@ -110,7 +110,7 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
 
     let root_dir = ctx.root_dir();
     let walker = WalkBuilder::new(&root_dir)
-        .hidden(hidden)
+        .hidden(!hidden)
         .threads(num_cpus::get())
         .build_parallel();
     walker.run(|| {
@@ -316,7 +316,7 @@ pub struct Build {
 
 impl Build {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let target_entries = self.target_entries(&ctx)?;
+        let target_entries = target_entries(&ctx, &self.input, self.hidden)?;
         let max_depth = target_entries.max_depth;
         log::info!(
             "max_depth: {}, files: {}",
@@ -342,52 +342,20 @@ impl Build {
         }
         Ok(())
     }
-
-    fn target_entries(&self, ctx: &Context) -> anyhow::Result<TargetEntries> {
-        let Some(input) = &self.input else {
-            return list_all_files(&ctx, self.hidden);
-        };
-        let input = input.as_os_str();
-
-        let input: BufReaderWrapper<Box<dyn BufRead>> = if input.eq("-") {
-            let stdin = io::stdin().lock();
-            let reader = io::BufReader::new(stdin);
-            BufReaderWrapper::new(Box::new(reader))
-        } else {
-            let reader = io::BufReader::new(File::open(input)?);
-            BufReaderWrapper::new(Box::new(reader))
-        };
-
-        let mut entries = TargetEntries::new();
-        for line in input {
-            let line = line?;
-            let relative_path = line.trim();
-
-            let is_dir = relative_path.ends_with('/');
-            let relative_path = relative_path.trim_start_matches("./").trim_end_matches('/');
-            let depth = relative_path.split('/').count();
-
-            let relative_path = PathBuf::from(relative_path);
-            if is_ignore_dir(&relative_path) {
-                continue;
-            }
-            if relative_path.is_absolute() {
-                return Err(anyhow!("absolute path is not supported"));
-            }
-
-            if is_dir {
-                entries.push_file_entry(FileEntry::new(ObjectType::Tree, relative_path, depth, 0));
-            } else {
-                entries.push_file_entry(FileEntry::new(ObjectType::File, relative_path, depth, 0));
-            }
-        }
-        entries.push_file_entry(FileEntry::new(ObjectType::Tree, PathBuf::from("."), 0, 0));
-        Ok(entries)
-    }
 }
 
 #[derive(Args, Debug)]
-pub struct List {}
+pub struct List {
+    /// The input file containing a list of files to be scanned.
+    /// By default, it scans all files in the current directory.
+    /// If you want to receive from standard input, specify "-".
+    #[clap(short, long, value_name = "input-file", verbatim_doc_comment)]
+    input: Option<OsString>,
+
+    /// If true, scan hidden files.
+    #[clap(long, default_value_t = false, verbatim_doc_comment)]
+    hidden: bool,
+}
 
 fn format_filetype(mode: &fs::FileType) -> &'static str {
     #[cfg(unix)]
@@ -436,7 +404,7 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let target_entries = list_all_files(&ctx, false)?;
+        let target_entries = target_entries(&ctx, &self.input, self.hidden)?;
         log::info!(
             "max_depth: {}, files: {}",
             target_entries.max_depth,
@@ -451,6 +419,52 @@ impl List {
         }
         Ok(())
     }
+}
+
+fn target_entries(
+    ctx: &Context,
+    input: &Option<OsString>,
+    hidden: bool,
+) -> anyhow::Result<TargetEntries> {
+    let Some(input) = &input else {
+        return list_all_files(&ctx, hidden);
+    };
+    let input = input.as_os_str();
+
+    let input: BufReaderWrapper<Box<dyn BufRead>> = if input.eq("-") {
+        let stdin = io::stdin().lock();
+        let reader = io::BufReader::new(stdin);
+        BufReaderWrapper::new(Box::new(reader))
+    } else {
+        let reader = io::BufReader::new(File::open(input)?);
+        BufReaderWrapper::new(Box::new(reader))
+    };
+
+    let mut entries = TargetEntries::new();
+    for line in input {
+        let line = line?;
+        let relative_path = line.trim();
+
+        let is_dir = relative_path.ends_with('/');
+        let relative_path = relative_path.trim_start_matches("./").trim_end_matches('/');
+        let depth = relative_path.split('/').count();
+
+        let relative_path = PathBuf::from(relative_path);
+        if is_ignore_dir(&relative_path) {
+            continue;
+        }
+        if relative_path.is_absolute() {
+            return Err(anyhow!("absolute path is not supported"));
+        }
+
+        if is_dir {
+            entries.push_file_entry(FileEntry::new(ObjectType::Tree, relative_path, depth, 0));
+        } else {
+            entries.push_file_entry(FileEntry::new(ObjectType::File, relative_path, depth, 0));
+        }
+    }
+    entries.push_file_entry(FileEntry::new(ObjectType::Tree, PathBuf::from("."), 0, 0));
+    Ok(entries)
 }
 
 pub struct BufReaderWrapper<R: BufRead> {
