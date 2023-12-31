@@ -24,7 +24,7 @@ function setup_new() {
   dir=$(mktemp -d)
   echo $dir >> $DROP_LIST
 
-  cp -r "$current_dir/tests/boilerplate/$case/" $dir
+  rsync -a "$current_dir/tests/boilerplate/$case/" $dir
   rm -rf $dir/.mtl
 
   cd $dir
