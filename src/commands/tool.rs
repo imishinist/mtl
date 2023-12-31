@@ -1,7 +1,8 @@
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use std::fs::File;
+use std::io;
 use std::io::Write;
 
 use clap::Args;
@@ -115,5 +116,73 @@ impl Generate {
         (0..need_bytes)
             .map(|_| rand::random::<u8>())
             .collect::<Vec<_>>()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CacheState {
+    total_size: u64,
+    total_pages: u64,
+    cached_pages: u64,
+    cached_size: usize,
+    cached_percentage: f64,
+}
+
+#[derive(Debug, Args)]
+pub struct Fincore {
+    input: Vec<PathBuf>,
+}
+
+impl Fincore {
+    fn fincore<P: AsRef<Path>>(path: P) -> io::Result<CacheState> {
+        let file = File::open(path)?;
+        let metadata = file.metadata()?;
+
+        let len = metadata.len();
+        let pagesize = page_size::get() as u64;
+        let npages = (len + pagesize - 1) / pagesize;
+
+        let mut vec = vec![0u8; npages as usize];
+        let m = unsafe {
+            memmap::MmapOptions::new()
+                .offset(0)
+                .len(len as usize)
+                .map(&file)?
+        };
+
+        let ret = unsafe { libc::mincore(m.as_ptr() as _, len as _, vec.as_mut_ptr() as _) };
+        if ret != 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        let cached = vec.iter().filter(|&&x| x & 1 == 1).count();
+        Ok(CacheState {
+            total_size: len,
+            total_pages: npages,
+            cached_pages: cached as u64,
+            cached_size: cached * pagesize as usize,
+            cached_percentage: cached as f64 / npages as f64,
+        })
+    }
+
+    pub fn run(&self) -> anyhow::Result<()> {
+        println!("file_name total_size total_pages cached_pages cached_size cached_percentage");
+        for path in &self.input {
+            if path.is_dir() {
+                continue;
+            }
+
+            let cache_state = Self::fincore(path)?;
+            println!(
+                "{} {} {} {} {} {:.2}%",
+                path.display(),
+                cache_state.total_size,
+                cache_state.total_pages,
+                cache_state.cached_pages,
+                cache_state.cached_size,
+                cache_state.cached_percentage * 100.0,
+            );
+        }
+        Ok(())
     }
 }

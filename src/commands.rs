@@ -430,6 +430,9 @@ pub enum ToolCommands {
 
     /// calculate xxHash
     Hash(tool::Hash),
+
+    /// fincore
+    Fincore(tool::Fincore),
 }
 
 impl ToolCommands {
@@ -437,6 +440,7 @@ impl ToolCommands {
         match self {
             ToolCommands::Generate(cmd) => cmd.run(),
             ToolCommands::Hash(cmd) => cmd.run(),
+            ToolCommands::Fincore(cmd) => cmd.run(),
         }
     }
 }
