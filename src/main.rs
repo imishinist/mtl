@@ -39,6 +39,10 @@ enum Commands {
 
     /// Print the tree of objects
     PrintTree(commands::PrintTreeCommand),
+
+    /// Tool subcommands
+    #[command(subcommand)]
+    Tool(commands::ToolCommands),
 }
 
 fn setup_signal_handler() {
@@ -70,6 +74,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Diff(diff) => diff.run(ctx)?,
         Commands::GC(gc) => gc.run(ctx)?,
         Commands::PrintTree(print_tree) => print_tree.run(ctx)?,
+        Commands::Tool(tool) => tool.run(ctx)?,
     }
 
     log::info!("Elapsed time: {:?}", start.elapsed());

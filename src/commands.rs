@@ -1,5 +1,6 @@
 pub mod local;
 mod r#ref;
+mod tool;
 
 use std::collections::HashMap;
 use std::io::BufWriter;
@@ -419,5 +420,23 @@ impl GCCommand {
         }
 
         Ok(())
+    }
+}
+
+#[derive(Subcommand)]
+pub enum ToolCommands {
+    /// generate test data
+    Generate(tool::Generate),
+
+    /// calculate xxHash
+    Hash(tool::Hash),
+}
+
+impl ToolCommands {
+    pub fn run(&self, _ctx: Context) -> anyhow::Result<()> {
+        match self {
+            ToolCommands::Generate(cmd) => cmd.run(),
+            ToolCommands::Hash(cmd) => cmd.run(),
+        }
     }
 }
