@@ -10,6 +10,7 @@ use indicatif::ProgressBar;
 use rand::prelude::{thread_rng, Distribution};
 use rand_distr::Normal;
 use rayon::prelude::*;
+use crate::filesystem;
 
 #[derive(Debug, Args)]
 pub struct Hash {
@@ -183,6 +184,23 @@ impl Fincore {
                 cache_state.cached_percentage * 100.0,
             );
         }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct Fadvise {
+    file: PathBuf,
+    advise: filesystem::Advise,
+
+    offset: Option<u64>,
+    len: Option<usize>,
+}
+
+impl Fadvise {
+    pub fn run(&self) -> anyhow::Result<()> {
+        let file = File::open(&self.file)?;
+        filesystem::fadvise(&file, self.advise, self.offset, self.len)?;
         Ok(())
     }
 }

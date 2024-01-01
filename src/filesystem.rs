@@ -4,7 +4,9 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy)]
+use clap::ValueEnum;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum Advise {
     Normal,
     Sequential,

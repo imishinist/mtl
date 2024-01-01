@@ -433,6 +433,9 @@ pub enum ToolCommands {
 
     /// fincore
     Fincore(tool::Fincore),
+
+    /// fadvise
+    Fadvise(tool::Fadvise),
 }
 
 impl ToolCommands {
@@ -441,6 +444,7 @@ impl ToolCommands {
             ToolCommands::Generate(cmd) => cmd.run(),
             ToolCommands::Hash(cmd) => cmd.run(),
             ToolCommands::Fincore(cmd) => cmd.run(),
+            ToolCommands::Fadvise(cmd) => cmd.run(),
         }
     }
 }
