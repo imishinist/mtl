@@ -33,7 +33,7 @@ pub fn fadvise(
         Advise::NoReuse => libc::POSIX_FADV_NOREUSE,
     };
     let offset = offset.unwrap_or(0);
-    let len = len.unwrap_or_else(|| file.metadata().map(|m| m.len()).unwrap_or(0) as usize);
+    let len = len.unwrap_or(0);
 
     let ret = unsafe { libc::posix_fadvise(file.as_raw_fd(), offset as _, len as _, advice) };
     if ret == 0 {
