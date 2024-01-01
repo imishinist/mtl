@@ -42,3 +42,7 @@ path = "src/lib.rs"
 [[bench]]
 name = "xxhash"
 harness = false
+
+[[bench]]
+name = "read"
+harness = false
