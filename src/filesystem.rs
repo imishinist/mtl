@@ -1,7 +1,56 @@
 use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::fs;
+use std::io;
 use std::path::Path;
+
+#[derive(Debug, Clone, Copy)]
+pub enum Advise {
+    Normal,
+    Sequential,
+    Random,
+    WillNeed,
+    DontNeed,
+    NoReuse,
+}
+
+#[cfg(target_os="linux")]
+pub fn fadvise(
+    file: &fs::File,
+    advice: Advise,
+    offset: Option<u64>,
+    len: Option<usize>,
+) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let advice = match advice {
+        Advise::Normal => libc::POSIX_FADV_NORMAL,
+        Advise::Sequential => libc::POSIX_FADV_SEQUENTIAL,
+        Advise::Random => libc::POSIX_FADV_RANDOM,
+        Advise::WillNeed => libc::POSIX_FADV_WILLNEED,
+        Advise::DontNeed => libc::POSIX_FADV_DONTNEED,
+        Advise::NoReuse => libc::POSIX_FADV_NOREUSE,
+    };
+    let offset = offset.unwrap_or(0);
+    let len = len.unwrap_or_else(|| file.metadata().map(|m| m.len()).unwrap_or(0) as usize);
+
+    let ret = unsafe { libc::posix_fadvise(file.as_raw_fd(), offset as _, len as _, advice) };
+    if ret == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(target_os="linux"))]
+#[inline]
+pub fn fadvise(
+    _file: &fs::File,
+    _advice: Advise,
+    _offset: Option<u64>,
+    _len: Option<usize>,
+) -> io::Result<()> {
+    Ok(())
+}
 
 #[cfg(any(unix, target_os = "redox"))]
 pub fn osstr_to_bytes(input: &OsStr) -> Cow<[u8]> {

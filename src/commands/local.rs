@@ -13,7 +13,7 @@ use itertools::Itertools;
 use rayon::prelude::*;
 
 use crate::progress::BuildProgressBar;
-use crate::{Context, Object, ObjectID, ObjectType, MTL_DIR};
+use crate::{Context, Object, ObjectID, ObjectType, MTL_DIR, filesystem};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct FileEntry {
@@ -220,7 +220,12 @@ fn process_tree_content(
 
 fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> {
     let path = ctx.root_dir().join(&entry.path);
-    let contents = fs::read(path)?;
+
+    let mut file = File::open(&path)?;
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents)?;
+    filesystem::fadvise(&file, filesystem::Advise::DontNeed, None, None)?;
+
     let object_id = ObjectID::from_contents(&contents);
     let file_name = PathBuf::from(entry.path.file_name().ok_or(io::Error::new(
         io::ErrorKind::NotFound,
