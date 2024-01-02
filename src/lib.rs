@@ -222,17 +222,24 @@ const MTL_DIR: &str = ".mtl";
 pub struct Context {
     // root of the repository
     root_dir: PathBuf,
+
+    drop_cache: bool,
 }
 
 impl Context {
     pub fn new<P: Into<PathBuf>>(root_dir: P) -> Self {
         Context {
             root_dir: root_dir.into(),
+            drop_cache: false,
         }
     }
 
     pub fn root_dir(&self) -> &Path {
         &self.root_dir
+    }
+
+    pub fn set_drop_cache(&mut self, drop_cache: bool) {
+        self.drop_cache = drop_cache;
     }
 
     pub fn object_dir(&self, object_id: &ObjectID) -> PathBuf {

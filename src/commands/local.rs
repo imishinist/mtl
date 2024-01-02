@@ -224,7 +224,9 @@ fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> 
     let mut file = File::open(&path)?;
     let mut contents = Vec::new();
     file.read_to_end(&mut contents)?;
-    filesystem::fadvise(&file, filesystem::Advise::DontNeed, None, None)?;
+    if ctx.drop_cache {
+        filesystem::fadvise(&file, filesystem::Advise::DontNeed, None, None)?;
+    }
 
     let object_id = ObjectID::from_contents(&contents);
     let file_name = PathBuf::from(entry.path.file_name().ok_or(io::Error::new(
@@ -317,10 +319,17 @@ pub struct Build {
     /// If true, show progress bar.
     #[clap(long, default_value_t = false, verbatim_doc_comment)]
     progress: bool,
+
+    /// If true, drop cache after reading files.
+    #[clap(long, default_value_t = false, verbatim_doc_comment)]
+    drop_cache: bool,
 }
 
 impl Build {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
+        let mut ctx = ctx;
+        ctx.set_drop_cache(self.drop_cache);
+
         let target_entries = target_entries(&ctx, &self.input, self.hidden)?;
         let max_depth = target_entries.max_depth;
         log::info!(
