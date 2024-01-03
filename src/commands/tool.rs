@@ -5,12 +5,12 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 
+use crate::filesystem;
 use clap::Args;
 use indicatif::ProgressBar;
 use rand::prelude::{thread_rng, Distribution};
 use rand_distr::Normal;
 use rayon::prelude::*;
-use crate::filesystem;
 
 #[derive(Debug, Args)]
 pub struct Hash {

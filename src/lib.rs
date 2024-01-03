@@ -8,6 +8,7 @@ pub use error::*;
 pub use filesystem::*;
 
 use std::cmp::Ordering;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
@@ -23,6 +24,63 @@ use tikv_jemallocator::Jemalloc;
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
+
+#[derive(Debug, Eq, PartialEq, Clone, Ord, Hash)]
+pub enum RelativePath {
+    Root,
+    Path(PathBuf),
+}
+
+impl RelativePath {
+    pub fn is_root(&self) -> bool {
+        matches!(self, RelativePath::Root)
+    }
+
+    pub fn parent(&self) -> Self {
+        match self {
+            RelativePath::Root => RelativePath::Root,
+            RelativePath::Path(path) => match path.parent() {
+                None => RelativePath::Root,
+                Some(parent) if parent.as_os_str().eq("") => RelativePath::Root,
+                Some(parent) => RelativePath::Path(parent.to_path_buf()),
+            },
+        }
+    }
+
+    pub fn file_name(&self) -> Option<&OsStr> {
+        match self {
+            RelativePath::Root => None,
+            RelativePath::Path(path) => path.file_name(),
+        }
+    }
+
+    pub fn as_path(&self) -> &Path {
+        match self {
+            RelativePath::Root => Path::new(""),
+            RelativePath::Path(path) => path.as_path(),
+        }
+    }
+}
+
+impl fmt::Display for RelativePath {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            RelativePath::Root => write!(f, ""),
+            RelativePath::Path(path) => write!(f, "{}", path.display()),
+        }
+    }
+}
+
+impl PartialOrd for RelativePath {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (RelativePath::Root, RelativePath::Root) => Some(Ordering::Equal),
+            (RelativePath::Root, RelativePath::Path(_)) => Some(Ordering::Less),
+            (RelativePath::Path(_), RelativePath::Root) => Some(Ordering::Greater),
+            (RelativePath::Path(a), RelativePath::Path(b)) => a.partial_cmp(b),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, ValueEnum, std::hash::Hash)]
 pub enum ObjectType {
@@ -433,7 +491,33 @@ fn serialize_entries<T: AsRef<Object>>(entries: &[T]) -> io::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+    use std::ffi::OsString;
     use std::path::Path;
+
+    #[test]
+    fn test_relative_path() {
+        let root = RelativePath::Root;
+        assert_eq!(root.is_root(), true);
+        assert_eq!(root.file_name(), None);
+
+        let mut m = HashMap::new();
+        m.insert(root.clone(), 1);
+        assert_eq!(m.get(&root), Some(&1));
+        assert_eq!(m.get(&RelativePath::Root), Some(&1));
+
+        let os_string_path = OsString::from("foo");
+        let path = RelativePath::Path(PathBuf::from(os_string_path.clone()));
+        assert_eq!(path.is_root(), false);
+        assert_eq!(path.parent(), RelativePath::Root);
+        assert_eq!(path.file_name(), Some(os_string_path.as_os_str()));
+
+        let path = RelativePath::Path(PathBuf::from("foo/bar"));
+        assert_eq!(path.is_root(), false);
+        assert_eq!(path.parent(), RelativePath::Path(PathBuf::from("foo")));
+
+        assert_eq!(path.parent().parent().is_root(), true);
+    }
 
     #[test]
     fn test_object_type_from_str() {

@@ -13,12 +13,12 @@ use itertools::Itertools;
 use rayon::prelude::*;
 
 use crate::progress::BuildProgressBar;
-use crate::{Context, Object, ObjectID, ObjectType, MTL_DIR, filesystem};
+use crate::{filesystem, Context, Object, ObjectID, ObjectType, RelativePath, MTL_DIR};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct FileEntry {
     mode: ObjectType,
-    path: PathBuf,
+    path: RelativePath,
     depth: usize,
 
     #[cfg(unix)]
@@ -27,22 +27,18 @@ struct FileEntry {
 
 impl FileEntry {
     #[cfg(unix)]
-    fn new<P: Into<PathBuf>>(mode: ObjectType, path: P, depth: usize, inode: u64) -> Self {
+    fn new(mode: ObjectType, path: RelativePath, depth: usize, inode: u64) -> Self {
         Self {
             mode,
-            path: path.into(),
+            path,
             depth,
             inode,
         }
     }
 
     #[cfg(not(unix))]
-    fn new<P: Into<PathBuf>>(mode: ObjectType, path: P, depth: usize) -> Self {
-        Self {
-            mode,
-            path: path.into(),
-            depth,
-        }
+    fn new(mode: ObjectType, path: RelativePath, depth: usize) -> Self {
+        Self { mode, path, depth }
     }
 }
 
@@ -137,32 +133,30 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
                 return WalkState::Continue;
             }
 
-            if ft.is_dir() {
-                #[cfg(unix)]
-                tx.send(FileEntry::new(
+            let entry = if path.as_os_str().is_empty() {
+                FileEntry::new(
                     ObjectType::Tree,
-                    path,
+                    RelativePath::Root,
                     depth,
+                    #[cfg(unix)]
                     entry.ino().unwrap(),
-                ))
-                .unwrap();
-
-                #[cfg(not(unix))]
-                tx.send(FileEntry::new(ObjectType::Tree, path, depth))
-                    .unwrap();
+                )
+            } else if ft.is_dir() {
+                FileEntry::new(
+                    ObjectType::Tree,
+                    RelativePath::Path(path.to_path_buf()),
+                    depth,
+                    #[cfg(unix)]
+                    entry.ino().unwrap(),
+                )
             } else if ft.is_file() {
-                #[cfg(unix)]
-                tx.send(FileEntry::new(
+                FileEntry::new(
                     ObjectType::File,
-                    path,
+                    RelativePath::Path(path.to_path_buf()),
                     depth,
+                    #[cfg(unix)]
                     entry.ino().unwrap(),
-                ))
-                .unwrap();
-
-                #[cfg(not(unix))]
-                tx.send(FileEntry::new(ObjectType::File, path, depth))
-                    .unwrap();
+                )
             } else {
                 log::warn!(
                     "ignored: not supported file type: {} \"{}\"",
@@ -170,7 +164,8 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
                     path.display()
                 );
                 return WalkState::Continue;
-            }
+            };
+            tx.send(entry).unwrap();
             WalkState::Continue
         })
     });
@@ -196,7 +191,7 @@ fn is_ignore_dir(path: &Path) -> bool {
 
 fn process_tree_content(
     ctx: &Context,
-    map: &HashMap<PathBuf, Vec<Object>>,
+    map: &HashMap<RelativePath, Vec<Object>>,
     entry: &FileEntry,
 ) -> io::Result<Option<Object>> {
     let objects = match map.get(&entry.path) {
@@ -204,14 +199,12 @@ fn process_tree_content(
         None => return Ok(None), // empty dir
     };
 
-    match entry.path.file_name() {
-        Some(file_name) => {
-            let file_name = PathBuf::from(file_name);
+    match &entry.path {
+        RelativePath::Path(path) => {
             let object_id = ctx.write_tree_contents(&objects)?;
-            Ok(Some(Object::new_tree(object_id, file_name)))
+            Ok(Some(Object::new_tree(object_id, path)))
         }
-        None => {
-            // root dir
+        RelativePath::Root => {
             let object_id = ctx.write_tree_contents(&objects)?;
             Ok(Some(Object::new_tree(object_id, PathBuf::from(""))))
         }
@@ -219,7 +212,7 @@ fn process_tree_content(
 }
 
 fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> {
-    let path = ctx.root_dir().join(&entry.path);
+    let path = ctx.root_dir().join(&entry.path.as_path());
 
     let mut file = File::open(&path)?;
     let mut contents = Vec::new();
@@ -254,10 +247,7 @@ fn process_target_entries(
     let mut objects_per_dir = files
         .into_par_iter()
         .fold(HashMap::new, |mut acc, entry| {
-            let parent = match entry.path.parent() {
-                Some(parent) => PathBuf::from(parent),
-                None => PathBuf::from(""),
-            };
+            let parent = entry.path.parent();
             let object = process_file_content(ctx, &entry).expect("failed to process file content");
             acc.entry(parent).or_insert(vec![]).push(object);
 
@@ -275,11 +265,7 @@ fn process_target_entries(
         let tmp = target
             .into_par_iter()
             .fold(HashMap::new, |mut acc, entry| {
-                let parent = match entry.path.parent() {
-                    Some(parent) => PathBuf::from(parent),
-                    None => PathBuf::from(""),
-                };
-
+                let parent = entry.path.parent();
                 match process_tree_content(ctx, &objects_per_dir, &entry).unwrap() {
                     Some(object) => acc.entry(parent).or_insert(vec![]).push(object),
                     None => {}
@@ -292,12 +278,12 @@ fn process_target_entries(
         objects_per_dir = merge_hashmap(objects_per_dir, tmp);
     }
 
-    let root = PathBuf::from("");
+    let root = RelativePath::Root;
     let mut objects = objects_per_dir.remove(&root).unwrap();
     objects.par_sort_unstable();
 
     let object_id = ctx.write_tree_contents(&objects)?;
-    Ok(Object::new_tree(object_id, root))
+    Ok(Object::new_tree(object_id, PathBuf::from("")))
 }
 
 #[derive(Args, Debug)]
@@ -425,11 +411,11 @@ impl List {
             target_entries.files.len()
         );
         for file in target_entries.files {
-            if file.path == PathBuf::from("") {
+            if file.path.is_root() {
                 println!("{} .", file.mode);
                 continue;
             }
-            println!("{} {}", file.mode, file.path.display());
+            println!("{} {}", file.mode, file.path.to_string());
         }
         Ok(())
     }
@@ -472,12 +458,22 @@ fn target_entries(
         }
 
         if is_dir {
-            entries.push_file_entry(FileEntry::new(ObjectType::Tree, relative_path, depth, 0));
+            entries.push_file_entry(FileEntry::new(
+                ObjectType::Tree,
+                RelativePath::Path(relative_path),
+                depth,
+                0,
+            ));
         } else {
-            entries.push_file_entry(FileEntry::new(ObjectType::File, relative_path, depth, 0));
+            entries.push_file_entry(FileEntry::new(
+                ObjectType::File,
+                RelativePath::Path(relative_path),
+                depth,
+                0,
+            ));
         }
     }
-    entries.push_file_entry(FileEntry::new(ObjectType::Tree, PathBuf::from("."), 0, 0));
+    entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0, 0));
     Ok(entries)
 }
 

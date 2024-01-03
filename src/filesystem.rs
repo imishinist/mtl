@@ -16,7 +16,7 @@ pub enum Advise {
     NoReuse,
 }
 
-#[cfg(target_os="linux")]
+#[cfg(target_os = "linux")]
 pub fn fadvise(
     file: &fs::File,
     advice: Advise,
@@ -43,7 +43,7 @@ pub fn fadvise(
     }
 }
 
-#[cfg(not(target_os="linux"))]
+#[cfg(not(target_os = "linux"))]
 #[inline]
 pub fn fadvise(
     _file: &fs::File,
