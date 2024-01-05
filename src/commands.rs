@@ -100,8 +100,8 @@ impl DiffCommand {
         object_b_id: &ObjectID,
         max_depth: Option<usize>,
     ) -> anyhow::Result<()> {
-        let object_a = Object::new_tree(object_a_id.clone(), ".");
-        let object_b = Object::new_tree(object_b_id.clone(), ".");
+        let object_a = Object::new_tree(*object_a_id, ".");
+        let object_b = Object::new_tree(*object_b_id, ".");
         Self::print_difference("", Some(&object_a), Some(&object_b))?;
         Self::inner_print_diff(ctx, "", object_a_id, object_b_id, max_depth, 0)
     }
@@ -145,14 +145,17 @@ impl DiffCommand {
                 DiffOp::Replace { .. } => {
                     let file_names = op
                         .iter_changes(&tree_a, &tree_b)
-                        .fold(HashMap::new(), |mut file_names, change| {
-                            let object = change.value();
-                            file_names
-                                .entry(object.file_name.clone())
-                                .or_insert(Vec::new())
-                                .push((change, object));
-                            file_names
-                        })
+                        .fold(
+                            HashMap::new(),
+                            |mut file_names: HashMap<PathBuf, Vec<_>>, change| {
+                                let object = change.value();
+                                file_names
+                                    .entry(object.file_name.clone())
+                                    .or_default()
+                                    .push((change, object));
+                                file_names
+                            },
+                        )
                         .into_iter()
                         .sorted_by(|(file_name_a, _), (file_name_b, _)| {
                             file_name_a.cmp(file_name_b)
@@ -174,7 +177,7 @@ impl DiffCommand {
                             (Some(object_a), Some(object_b))
                                 if object_a.is_tree() && object_b.is_tree() =>
                             {
-                                let _ = Self::inner_print_diff(
+                                Self::inner_print_diff(
                                     ctx,
                                     parent.join(&file_name),
                                     &object_a.object_id,
@@ -361,12 +364,12 @@ impl GCCommand {
             .iter()
             .map(|x| (x.to_path_buf(), false))
             .collect::<HashMap<_, _>>();
-        self.mark_used_object(&ctx, &head_object, &mut objects)?;
+        Self::mark_used_object(&ctx, &head_object, &mut objects)?;
 
         let object_refs = ctx.list_object_refs()?;
         for object_ref in object_refs {
             let object_id = ctx.deref_object_ref(&object_ref)?;
-            self.mark_used_object(&ctx, &object_id, &mut objects)?;
+            Self::mark_used_object(&ctx, &object_id, &mut objects)?;
         }
 
         let mut deleted_objects = 0u64;
@@ -401,7 +404,6 @@ impl GCCommand {
     }
 
     pub fn mark_used_object(
-        &self,
         ctx: &Context,
         root_object: &ObjectID,
         objects: &mut HashMap<PathBuf, bool>,
@@ -415,7 +417,7 @@ impl GCCommand {
                 let object_path = ctx.object_file(&object.object_id);
 
                 objects.insert(object_path, true);
-                self.mark_used_object(ctx, &object.object_id, objects)?;
+                Self::mark_used_object(ctx, &object.object_id, objects)?;
             }
         }
 

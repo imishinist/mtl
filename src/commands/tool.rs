@@ -21,7 +21,7 @@ impl Hash {
     pub fn run(&self) -> anyhow::Result<()> {
         if self.input.is_empty() {
             let contents = Self::contents_from_stdin()?;
-            println!("{} -", crate::hash::Hash::from_contents(&contents));
+            println!("{} -", crate::hash::Hash::from_contents(contents));
         } else {
             for path in &self.input {
                 if path.is_dir() {

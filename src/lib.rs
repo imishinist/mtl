@@ -25,7 +25,7 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
-#[derive(Debug, Eq, PartialEq, Clone, Ord, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub enum RelativePath {
     Root,
     Path(PathBuf),
@@ -71,13 +71,19 @@ impl fmt::Display for RelativePath {
     }
 }
 
-impl PartialOrd for RelativePath {
+impl PartialOrd<Self> for RelativePath {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RelativePath {
+    fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
-            (RelativePath::Root, RelativePath::Root) => Some(Ordering::Equal),
-            (RelativePath::Root, RelativePath::Path(_)) => Some(Ordering::Less),
-            (RelativePath::Path(_), RelativePath::Root) => Some(Ordering::Greater),
-            (RelativePath::Path(a), RelativePath::Path(b)) => a.partial_cmp(b),
+            (RelativePath::Root, RelativePath::Root) => Ordering::Equal,
+            (RelativePath::Root, RelativePath::Path(_)) => Ordering::Less,
+            (RelativePath::Path(_), RelativePath::Root) => Ordering::Greater,
+            (RelativePath::Path(a), RelativePath::Path(b)) => a.cmp(b),
         }
     }
 }
@@ -137,7 +143,7 @@ impl FromStr for ObjectID {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(ObjectID::from_hex(s)?)
+        ObjectID::from_hex(s)
     }
 }
 
@@ -179,12 +185,7 @@ impl FromStr for ObjectRef {
 
 impl PartialOrd for ObjectRef {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (ObjectRef::Reference(a), ObjectRef::Reference(b)) => a.partial_cmp(b),
-            (ObjectRef::ID(a), ObjectRef::ID(b)) => a.partial_cmp(b),
-            (ObjectRef::Reference(_), ObjectRef::ID(_)) => Some(Ordering::Less),
-            (ObjectRef::ID(_), ObjectRef::Reference(_)) => Some(Ordering::Greater),
-        }
+        Some(self.cmp(other))
     }
 }
 
@@ -252,13 +253,13 @@ impl AsRef<Object> for Object {
 
 impl PartialOrd<Self> for Object {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        return self.file_name.partial_cmp(&other.file_name);
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Object {
     fn cmp(&self, other: &Self) -> Ordering {
-        return self.file_name.cmp(&other.file_name);
+        self.file_name.cmp(&other.file_name)
     }
 }
 
@@ -375,7 +376,7 @@ impl Context {
 
                 Ok(contents.parse()?)
             }
-            ObjectRef::ID(object_id) => Ok(object_id.clone()),
+            ObjectRef::ID(object_id) => Ok(*object_id),
         }
     }
 
@@ -414,7 +415,7 @@ impl Context {
         object_id: ObjectID,
     ) -> io::Result<()> {
         let ref_dir = self.reference_dir();
-        fs::create_dir_all(&ref_dir)?;
+        fs::create_dir_all(ref_dir)?;
 
         let ref_file = self.reference_file(ref_name.as_ref());
         fs::write(ref_file, object_id.to_string())?;
@@ -428,14 +429,14 @@ impl Context {
     }
 
     pub fn write_tree_contents<T: AsRef<Object>>(&self, entries: &[T]) -> io::Result<ObjectID> {
-        let tree_contents = serialize_entries(&entries)?;
+        let tree_contents = serialize_entries(entries)?;
         let object_id = ObjectID::from_contents(&tree_contents);
 
         let dir_name = self.object_dir(&object_id);
         let file_name = self.object_file(&object_id);
 
-        fs::create_dir_all(&dir_name)?;
-        fs::write(&file_name, tree_contents)?;
+        fs::create_dir_all(dir_name)?;
+        fs::write(file_name, tree_contents)?;
 
         Ok(object_id)
     }

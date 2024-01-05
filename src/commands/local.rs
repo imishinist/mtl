@@ -43,14 +43,8 @@ impl FileEntry {
 }
 
 impl PartialOrd for FileEntry {
-    #[cfg(unix)]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.inode.partial_cmp(&other.inode)
-    }
-
-    #[cfg(not(unix))]
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.path.partial_cmp(&other.path)
+        Some(self.cmp(other))
     }
 }
 
@@ -105,7 +99,7 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
     });
 
     let root_dir = ctx.root_dir();
-    let walker = WalkBuilder::new(&root_dir)
+    let walker = WalkBuilder::new(root_dir)
         .hidden(!hidden)
         .threads(num_cpus::get())
         .build_parallel();
@@ -129,7 +123,7 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
             };
 
             let path = entry.path().strip_prefix(root_dir).unwrap();
-            if is_ignore_dir(&path) {
+            if is_ignore_dir(path) {
                 return WalkState::Continue;
             }
 
@@ -179,7 +173,7 @@ fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(
     map2: HashMap<K, Vec<V>>,
 ) -> HashMap<K, Vec<V>> {
     map2.into_iter().fold(map1, |mut acc, (k, vs)| {
-        acc.entry(k).or_insert(vec![]).extend(vs);
+        acc.entry(k).or_default().extend(vs);
         acc
     })
 }
@@ -212,9 +206,9 @@ fn process_tree_content(
 }
 
 fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> {
-    let path = ctx.root_dir().join(&entry.path.as_path());
+    let path = ctx.root_dir().join(entry.path.as_path());
 
-    let mut file = File::open(&path)?;
+    let mut file = File::open(path)?;
     let mut contents = Vec::new();
     file.read_to_end(&mut contents)?;
     if ctx.drop_cache {
@@ -246,14 +240,17 @@ fn process_target_entries(
 
     let mut objects_per_dir = files
         .into_par_iter()
-        .fold(HashMap::new, |mut acc, entry| {
-            let parent = entry.path.parent();
-            let object = process_file_content(ctx, &entry).expect("failed to process file content");
-            acc.entry(parent).or_insert(vec![]).push(object);
-
-            pb.inc_file(1);
-            acc
-        })
+        .fold(
+            HashMap::new,
+            |mut acc: HashMap<RelativePath, Vec<_>>, entry| {
+                let parent = entry.path.parent();
+                let object =
+                    process_file_content(ctx, &entry).expect("failed to process file content");
+                acc.entry(parent).or_default().push(object);
+                pb.inc_file(1);
+                acc
+            },
+        )
         .reduce(HashMap::new, merge_hashmap);
 
     for i in (1..max_depth).rev() {
@@ -264,16 +261,20 @@ fn process_target_entries(
 
         let tmp = target
             .into_par_iter()
-            .fold(HashMap::new, |mut acc, entry| {
-                let parent = entry.path.parent();
-                match process_tree_content(ctx, &objects_per_dir, &entry).unwrap() {
-                    Some(object) => acc.entry(parent).or_insert(vec![]).push(object),
-                    None => {}
-                }
-                pb.inc_dir(1);
+            .fold(
+                HashMap::new,
+                |mut acc: HashMap<RelativePath, Vec<_>>, entry| {
+                    let parent = entry.path.parent();
+                    if let Some(object) =
+                        process_tree_content(ctx, &objects_per_dir, &entry).unwrap()
+                    {
+                        acc.entry(parent).or_default().push(object);
+                    }
+                    pb.inc_dir(1);
 
-                acc
-            })
+                    acc
+                },
+            )
             .reduce(HashMap::new, merge_hashmap);
         objects_per_dir = merge_hashmap(objects_per_dir, tmp);
     }
@@ -415,7 +416,7 @@ impl List {
                 println!("{} .", file.mode);
                 continue;
             }
-            println!("{} {}", file.mode, file.path.to_string());
+            println!("{} {}", file.mode, file.path);
         }
         Ok(())
     }
@@ -427,7 +428,7 @@ fn target_entries(
     hidden: bool,
 ) -> anyhow::Result<TargetEntries> {
     let Some(input) = &input else {
-        return list_all_files(&ctx, hidden);
+        return list_all_files(ctx, hidden);
     };
     let input = input.as_os_str();
 

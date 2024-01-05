@@ -32,7 +32,7 @@ impl TestDir {
 impl Drop for TestDir {
     fn drop(&mut self) {
         for file in &self.files {
-            fs::remove_file(&file).unwrap();
+            fs::remove_file(file).unwrap();
         }
         fs::remove_dir(&self.path).unwrap();
     }
@@ -48,7 +48,7 @@ fn setup(dir: &mut TestDir) -> io::Result<PathBuf> {
     let random_file_name = rand::random::<u64>().to_string();
     let random_contents = generate_random(20000);
 
-    Ok(dir.create_file(&random_file_name, &random_contents)?)
+    dir.create_file(&random_file_name, &random_contents)
 }
 
 fn read_outside_buffer(c: &mut Criterion) {
@@ -58,7 +58,7 @@ fn read_outside_buffer(c: &mut Criterion) {
         let mut buf = Vec::new();
         b.iter(|| {
             let file_name = setup(&mut dir).unwrap();
-            let mut file = fs::File::open(&file_name).unwrap();
+            let mut file = fs::File::open(file_name).unwrap();
             file.read_to_end(black_box(&mut buf)).unwrap();
         })
     });
@@ -71,7 +71,7 @@ fn read_inside_buffer(c: &mut Criterion) {
         b.iter(|| {
             let mut buf = Vec::new();
             let file_name = setup(&mut dir).unwrap();
-            let mut file = fs::File::open(&file_name).unwrap();
+            let mut file = fs::File::open(file_name).unwrap();
             file.read_to_end(black_box(&mut buf)).unwrap();
         })
     });
