@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, Read};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::{fs, io};
 
@@ -12,8 +12,9 @@ use ignore::{WalkBuilder, WalkState};
 use itertools::Itertools;
 use rayon::prelude::*;
 
+use crate::filter::{Filter, MatchAllFilter};
 use crate::progress::BuildProgressBar;
-use crate::{filesystem, Context, Object, ObjectID, ObjectType, RelativePath, MTL_DIR};
+use crate::{filesystem, Context, Object, ObjectID, ObjectType, RelativePath};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct FileEntry {
@@ -88,7 +89,11 @@ impl TargetEntries {
     }
 }
 
-fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> {
+fn list_all_files(
+    ctx: &Context,
+    filter: impl Filter,
+    hidden: bool,
+) -> anyhow::Result<TargetEntries> {
     let (tx, rx) = crossbeam_channel::bounded::<FileEntry>(100);
     let output_thread = std::thread::spawn(move || {
         let mut entries = TargetEntries::new();
@@ -105,6 +110,7 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
         .build_parallel();
     walker.run(|| {
         let tx = tx.clone();
+        let filter = filter.clone();
         Box::new(move |entry| {
             let entry = match entry {
                 Ok(entry) => entry,
@@ -123,7 +129,8 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
             };
 
             let path = entry.path().strip_prefix(root_dir).unwrap();
-            if is_ignore_dir(path) {
+            let relative_path = RelativePath::from(path);
+            if !filter.path_matches(&relative_path) {
                 return WalkState::Continue;
             }
 
@@ -138,7 +145,7 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
             } else if ft.is_dir() {
                 FileEntry::new(
                     ObjectType::Tree,
-                    RelativePath::Path(path.to_path_buf()),
+                    relative_path,
                     depth,
                     #[cfg(unix)]
                     entry.ino().unwrap(),
@@ -146,7 +153,7 @@ fn list_all_files(ctx: &Context, hidden: bool) -> anyhow::Result<TargetEntries> 
             } else if ft.is_file() {
                 FileEntry::new(
                     ObjectType::File,
-                    RelativePath::Path(path.to_path_buf()),
+                    relative_path,
                     depth,
                     #[cfg(unix)]
                     entry.ino().unwrap(),
@@ -176,11 +183,6 @@ fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(
         acc.entry(k).or_default().extend(vs);
         acc
     })
-}
-
-fn is_ignore_dir(path: &Path) -> bool {
-    let path = path.to_str().unwrap();
-    path.contains(MTL_DIR) || path.contains(".git")
 }
 
 fn process_tree_content(
@@ -317,7 +319,7 @@ impl Build {
         let mut ctx = ctx;
         ctx.set_drop_cache(self.drop_cache);
 
-        let target_entries = target_entries(&ctx, &self.input, self.hidden)?;
+        let target_entries = target_entries(&ctx, MatchAllFilter, &self.input, self.hidden)?;
         let max_depth = target_entries.max_depth;
         log::info!(
             "max_depth: {}, files: {}",
@@ -405,7 +407,7 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let target_entries = target_entries(&ctx, &self.input, self.hidden)?;
+        let target_entries = target_entries(&ctx, MatchAllFilter, &self.input, self.hidden)?;
         log::info!(
             "max_depth: {}, files: {}",
             target_entries.max_depth,
@@ -424,11 +426,12 @@ impl List {
 
 fn target_entries(
     ctx: &Context,
+    filter: impl Filter,
     input: &Option<OsString>,
     hidden: bool,
 ) -> anyhow::Result<TargetEntries> {
     let Some(input) = &input else {
-        return list_all_files(ctx, hidden);
+        return list_all_files(ctx, filter, hidden);
     };
     let input = input.as_os_str();
 
@@ -451,28 +454,25 @@ fn target_entries(
         let depth = relative_path.split('/').count();
 
         let relative_path = PathBuf::from(relative_path);
-        if is_ignore_dir(&relative_path) {
-            continue;
-        }
         if relative_path.is_absolute() {
             return Err(anyhow!("absolute path is not supported"));
         }
 
-        if is_dir {
-            entries.push_file_entry(FileEntry::new(
-                ObjectType::Tree,
-                RelativePath::Path(relative_path),
-                depth,
-                0,
-            ));
-        } else {
-            entries.push_file_entry(FileEntry::new(
-                ObjectType::File,
-                RelativePath::Path(relative_path),
-                depth,
-                0,
-            ));
+        let relative_path = RelativePath::from(relative_path);
+        if !filter.path_matches(&relative_path) {
+            continue;
         }
+
+        let object_type = if is_dir {
+            ObjectType::Tree
+        } else {
+            ObjectType::File
+        };
+
+        #[cfg(unix)]
+        entries.push_file_entry(FileEntry::new(object_type, relative_path, depth, 0));
+        #[cfg(not(unix))]
+        entries.push_file_entry(FileEntry::new(object_type, relative_path, depth));
     }
     entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0, 0));
     Ok(entries)
