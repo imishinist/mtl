@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod error;
 pub(crate) mod filesystem;
+mod filter;
 pub mod hash;
 pub(crate) mod progress;
 
@@ -12,6 +13,7 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -65,6 +67,23 @@ impl RelativePath {
         match self {
             RelativePath::Root => RelativePath::Path(PathBuf::from(name.as_ref())),
             RelativePath::Path(path) => RelativePath::Path(path.join(name)),
+        }
+    }
+}
+
+impl<P: Into<PathBuf>> From<P> for RelativePath {
+    fn from(path: P) -> Self {
+        RelativePath::Path(path.into())
+    }
+}
+
+impl Deref for RelativePath {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            RelativePath::Root => Path::new(""),
+            RelativePath::Path(path) => path.as_path(),
         }
     }
 }
