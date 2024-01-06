@@ -60,6 +60,13 @@ impl RelativePath {
             RelativePath::Path(path) => path.as_path(),
         }
     }
+
+    pub fn join<P: AsRef<Path>>(&self, name: P) -> Self {
+        match self {
+            RelativePath::Root => RelativePath::Path(PathBuf::from(name.as_ref())),
+            RelativePath::Path(path) => RelativePath::Path(path.join(name)),
+        }
+    }
 }
 
 impl fmt::Display for RelativePath {
