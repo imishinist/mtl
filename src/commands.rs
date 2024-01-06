@@ -12,7 +12,9 @@ use console::{style, Style};
 use itertools::Itertools;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
-use crate::{file_size, Context, Object, ObjectID, ObjectRef, ObjectType, ReadContentError};
+use crate::{
+    file_size, Context, Object, ObjectID, ObjectRef, ObjectType, ReadContentError, RelativePath,
+};
 
 #[derive(Subcommand)]
 pub enum LocalCommand {
@@ -102,8 +104,15 @@ impl DiffCommand {
     ) -> anyhow::Result<()> {
         let object_a = Object::new_tree(*object_a_id, ".");
         let object_b = Object::new_tree(*object_b_id, ".");
-        Self::print_difference("", Some(&object_a), Some(&object_b))?;
-        Self::inner_print_diff(ctx, "", object_a_id, object_b_id, max_depth, 0)
+        Self::print_difference(&RelativePath::Root, Some(&object_a), Some(&object_b))?;
+        Self::inner_print_diff(
+            ctx,
+            &RelativePath::Root,
+            object_a_id,
+            object_b_id,
+            max_depth,
+            0,
+        )
     }
 
     fn inner_print_diff<P: AsRef<Path>>(
@@ -147,7 +156,7 @@ impl DiffCommand {
                         .iter_changes(&tree_a, &tree_b)
                         .fold(
                             HashMap::new(),
-                            |mut file_names: HashMap<PathBuf, Vec<_>>, change| {
+                            |mut file_names: HashMap<RelativePath, Vec<_>>, change| {
                                 let object = change.value();
                                 file_names
                                     .entry(object.file_name.clone())

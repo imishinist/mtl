@@ -77,6 +77,12 @@ impl<P: Into<PathBuf>> From<P> for RelativePath {
     }
 }
 
+impl AsRef<Path> for RelativePath {
+    fn as_ref(&self) -> &Path {
+        self.as_path()
+    }
+}
+
 impl Deref for RelativePath {
     type Target = Path;
 
@@ -232,7 +238,7 @@ pub struct Object {
     object_id: ObjectID,
 
     // only contains basename of file
-    file_name: PathBuf,
+    file_name: RelativePath,
 }
 
 impl Object {
@@ -244,7 +250,7 @@ impl Object {
         Object {
             object_type,
             object_id,
-            file_name: file_name.into(),
+            file_name: RelativePath::from(file_name),
         }
     }
 
@@ -603,10 +609,10 @@ mod tests {
         assert_eq!(objects, compare_target);
         assert_eq!(
             vec![
-                PathBuf::from("a"),
-                PathBuf::from("b"),
-                PathBuf::from("c"),
-                PathBuf::from("d")
+                RelativePath::from("a"),
+                RelativePath::from("b"),
+                RelativePath::from("c"),
+                RelativePath::from("d")
             ],
             objects.into_iter().map(|o| o.file_name).collect::<Vec<_>>()
         );
