@@ -14,6 +14,9 @@ pub enum ReadContentError {
     ParseError(#[from] ParseError),
 
     #[error(transparent)]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
+
+    #[error(transparent)]
     StorageError(#[from] StorageError),
 
     #[error(transparent)]

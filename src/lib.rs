@@ -606,7 +606,7 @@ impl Context {
         object_id: &ObjectID,
     ) -> Result<Vec<Object>, ReadContentError> {
         let tree_contents = self.read_object(object_id)?;
-        let tree_contents = String::from_utf8(tree_contents).unwrap();
+        let tree_contents = String::from_utf8(tree_contents)?;
 
         let mut objects = Vec::new();
         for line in tree_contents.lines() {
