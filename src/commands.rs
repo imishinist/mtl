@@ -277,7 +277,7 @@ impl PackCommand {
         let pack_dir = ctx.pack_dir();
         fs::create_dir_all(&pack_dir)?;
 
-        let db = Database::create(ctx.pack_file(&ctx.read_head()?))?;
+        let db = Database::create(ctx.pack_file())?;
         let write_txn = db.begin_write()?;
         {
             let mut table = write_txn.open_table(PACKED_OBJECTS_TABLE)?;
@@ -287,10 +287,20 @@ impl PackCommand {
                 let content = fs::read_to_string(&object_path)?;
                 table.insert(object_id, content.as_str())?;
 
-                // TODO: remove object file
+                fs::remove_file(&object_path)?;
             }
         }
         write_txn.commit()?;
+
+        let dirs = fs::read_dir(ctx.objects_dir())?;
+        for dir in dirs {
+            let dir = dir?;
+            if !dir.file_type()?.is_dir() {
+                continue;
+            }
+
+            fs::remove_dir(dir.path())?;
+        }
 
         Ok(())
     }

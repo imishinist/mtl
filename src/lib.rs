@@ -217,7 +217,7 @@ impl RedbValue for ObjectID {
 
 impl RedbKey for ObjectID {
     fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
-        data1.cmp(data2)
+        byteorder::LittleEndian::read_u64(data1).cmp(&byteorder::LittleEndian::read_u64(data2))
     }
 }
 
@@ -353,20 +353,31 @@ const MTL_DIR: &str = ".mtl";
 pub(crate) const PACKED_OBJECTS_TABLE: TableDefinition<ObjectID, &str> =
     TableDefinition::new("packed-objects");
 
-#[derive(Debug)]
 pub struct Context {
     // root of the repository
     root_dir: PathBuf,
 
     drop_cache: bool,
+
+    packed_db: Option<redb::Database>,
 }
 
 impl Context {
-    pub fn new<P: Into<PathBuf>>(root_dir: P) -> Self {
-        Context {
-            root_dir: root_dir.into(),
+    pub fn new<P: Into<PathBuf>>(root_dir: P) -> anyhow::Result<Self> {
+        let root_dir = root_dir.into();
+        let packed_db_file = root_dir.join(MTL_DIR).join("packed.redb");
+
+        let packed_db = if packed_db_file.exists() {
+            Some(redb::Database::open(&packed_db_file)?)
+        } else {
+            None
+        };
+
+        Ok(Context {
+            root_dir,
             drop_cache: false,
-        }
+            packed_db,
+        })
     }
 
     pub fn set_drop_cache(&mut self, drop_cache: bool) {
@@ -388,8 +399,8 @@ impl Context {
         self.root_dir.as_path().join(MTL_DIR).join("pack")
     }
 
-    pub fn pack_file(&self, object_id: &ObjectID) -> PathBuf {
-        self.pack_dir().join(format!("pack-{}.pack", object_id))
+    pub fn pack_file(&self) -> PathBuf {
+        self.pack_dir().join("packed.redb")
     }
 
     #[inline]
@@ -657,7 +668,7 @@ mod tests {
 
     #[test]
     fn test_context() {
-        let ctx = Context::new("/tmp");
+        let ctx = Context::new("/tmp").unwrap();
         assert_eq!(ctx.root_dir(), Path::new("/tmp"));
         assert_eq!(
             ctx.object_dir(&ObjectID::from_hex("d447b1ea40e6988b").unwrap()),

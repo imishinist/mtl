@@ -69,7 +69,7 @@ fn main() -> anyhow::Result<()> {
         .canonicalize()?;
     log::info!("dir: {}", dir.display());
 
-    let ctx = Context::new(&dir);
+    let ctx = Context::new(&dir)?;
     match &mtl.commands {
         Commands::Local(local) => local.run(ctx)?,
         Commands::Ref(ref_command) => ref_command.run(ctx)?,
