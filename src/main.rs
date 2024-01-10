@@ -37,6 +37,9 @@ enum Commands {
     /// Run garbage collection
     GC(commands::GCCommand),
 
+    /// Pack the objects
+    Pack(commands::PackCommand),
+
     /// Print the tree of objects
     PrintTree(commands::PrintTreeCommand),
 
@@ -73,6 +76,7 @@ fn main() -> anyhow::Result<()> {
         Commands::CatObject(cat_object) => cat_object.run(ctx)?,
         Commands::Diff(diff) => diff.run(ctx)?,
         Commands::GC(gc) => gc.run(ctx)?,
+        Commands::Pack(pack) => pack.run(ctx)?,
         Commands::PrintTree(print_tree) => print_tree.run(ctx)?,
         Commands::Tool(tool) => tool.run(ctx)?,
     }

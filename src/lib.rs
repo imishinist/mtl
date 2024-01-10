@@ -7,7 +7,9 @@ pub(crate) mod progress;
 
 pub use error::*;
 pub use filesystem::*;
+use std::borrow::Borrow;
 
+use byteorder::ByteOrder;
 use std::cmp::Ordering;
 use std::ffi::OsStr;
 use std::fmt;
@@ -18,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use clap::ValueEnum;
+use redb::{RedbKey, RedbValue, TableDefinition, TypeName};
 
 use crate::hash::Hash;
 #[cfg(feature = "jemalloc")]
@@ -179,6 +182,45 @@ impl FromStr for ObjectID {
     }
 }
 
+impl Borrow<u64> for ObjectID {
+    fn borrow(&self) -> &u64 {
+        self.0.borrow()
+    }
+}
+
+impl RedbValue for ObjectID {
+    type SelfType<'a> = ObjectID;
+    type AsBytes<'a> = Vec<u8>;
+
+    fn fixed_width() -> Option<usize> {
+        Some(Hash::fixed_width())
+    }
+
+    fn from_bytes<'a>(data: &'a [u8]) -> ObjectID
+    where
+        Self: 'a,
+    {
+        ObjectID::new(Hash::new(byteorder::LittleEndian::read_u64(data)))
+    }
+
+    fn as_bytes<'a, 'b: 'a>(value: &'a ObjectID) -> Vec<u8>
+    where
+        Self: 'a,
+    {
+        value.0.to_bytes()
+    }
+
+    fn type_name() -> TypeName {
+        TypeName::new("object-id")
+    }
+}
+
+impl RedbKey for ObjectID {
+    fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
+        data1.cmp(data2)
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub enum ObjectRef {
     Reference(String),
@@ -308,6 +350,8 @@ impl fmt::Display for Object {
 }
 
 const MTL_DIR: &str = ".mtl";
+pub(crate) const PACKED_OBJECTS_TABLE: TableDefinition<ObjectID, &str> =
+    TableDefinition::new("packed-objects");
 
 #[derive(Debug)]
 pub struct Context {
@@ -325,29 +369,37 @@ impl Context {
         }
     }
 
-    pub fn root_dir(&self) -> &Path {
-        &self.root_dir
-    }
-
     pub fn set_drop_cache(&mut self, drop_cache: bool) {
         self.drop_cache = drop_cache;
     }
 
+    #[inline]
+    pub fn root_dir(&self) -> &Path {
+        &self.root_dir
+    }
+
+    #[inline]
+    pub fn objects_dir(&self) -> PathBuf {
+        self.root_dir.as_path().join(MTL_DIR).join("objects")
+    }
+
+    #[inline]
+    pub fn pack_dir(&self) -> PathBuf {
+        self.root_dir.as_path().join(MTL_DIR).join("pack")
+    }
+
+    pub fn pack_file(&self, object_id: &ObjectID) -> PathBuf {
+        self.pack_dir().join(format!("pack-{}.pack", object_id))
+    }
+
+    #[inline]
     pub fn object_dir(&self, object_id: &ObjectID) -> PathBuf {
-        let dir_name = self.root_dir.as_path();
-        dir_name
-            .join(MTL_DIR)
-            .join("objects")
-            .join(&object_id.to_string()[0..2])
+        self.objects_dir().join(&object_id.to_string()[0..2])
     }
 
     pub fn object_file(&self, object_id: &ObjectID) -> PathBuf {
         let object_string = object_id.to_string();
-
-        let file_name = self.root_dir.as_path();
-        file_name
-            .join(MTL_DIR)
-            .join("objects")
+        self.objects_dir()
             .join(&object_string[0..2])
             .join(&object_string[2..])
     }
@@ -383,6 +435,31 @@ impl Context {
         }
 
         Ok(object_files)
+    }
+
+    pub fn list_object_ids(&self) -> anyhow::Result<Vec<ObjectID>, ReadContentError> {
+        let mut object_ids = Vec::new();
+        for entry in self.object_files()? {
+            let dir_name = entry
+                .parent()
+                .and_then(|f| f.file_name())
+                .and_then(|f| f.to_str())
+                .ok_or(ParseError::EmptyToken)?;
+            let file_name = entry
+                .file_name()
+                .and_then(|f| f.to_str())
+                .ok_or(ParseError::EmptyToken)?;
+
+            let mut buf = String::with_capacity(dir_name.len() + file_name.len());
+            buf.push_str(dir_name);
+            buf.push_str(file_name);
+
+            let object_id: ObjectID = buf.parse()?;
+
+            object_ids.push(object_id);
+            assert_eq!(object_id.to_string(), buf)
+        }
+        Ok(object_ids)
     }
 
     pub fn head_file(&self) -> PathBuf {

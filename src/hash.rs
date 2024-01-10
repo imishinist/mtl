@@ -1,3 +1,5 @@
+use byteorder::ByteOrder;
+use std::borrow::Borrow;
 use std::fmt;
 
 use crate::ParseHashError;
@@ -24,11 +26,27 @@ impl Hash {
         let xxh3 = u64::from_str_radix(hex, 16)?;
         Ok(Hash::new(xxh3))
     }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = vec![0; 8];
+        byteorder::LittleEndian::write_u64(&mut buf, self.xxh3);
+        buf
+    }
+
+    pub fn fixed_width() -> usize {
+        8
+    }
 }
 
 impl fmt::Display for Hash {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         write!(f, "{:016x}", self.xxh3)
+    }
+}
+
+impl Borrow<u64> for Hash {
+    fn borrow(&self) -> &u64 {
+        &self.xxh3
     }
 }
 
@@ -42,6 +60,9 @@ pub fn xxh64_contents<T: AsRef<[u8]>>(contents: T) -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::hash::Hash;
+    use byteorder::ByteOrder;
+
     #[test]
     fn test_hash() {
         let actual = super::Hash::new(0);
@@ -64,5 +85,14 @@ mod tests {
             format!("{}", actual.unwrap_err()),
             "invalid digit found in string"
         );
+    }
+
+    #[test]
+    fn hash_ref() {
+        let a = vec![1, 2, 4, 8, 16, 32, 64, 128];
+        let t = byteorder::LittleEndian::read_u64(&a);
+        let hash = Hash::new(t);
+
+        assert_eq!(a, hash.to_bytes());
     }
 }

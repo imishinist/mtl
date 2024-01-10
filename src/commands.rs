@@ -10,10 +10,12 @@ use std::{fs, io};
 use clap::{Args, Subcommand};
 use console::{style, Style};
 use itertools::Itertools;
+use redb::Database;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
 use crate::{
     file_size, Context, Object, ObjectID, ObjectRef, ObjectType, ReadContentError, RelativePath,
+    PACKED_OBJECTS_TABLE,
 };
 
 #[derive(Subcommand)]
@@ -268,6 +270,33 @@ impl DiffCommand {
 }
 
 #[derive(Args, Debug)]
+pub struct PackCommand {}
+
+impl PackCommand {
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
+        let pack_dir = ctx.pack_dir();
+        fs::create_dir_all(&pack_dir)?;
+
+        let db = Database::create(ctx.pack_file(&ctx.read_head()?))?;
+        let write_txn = db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(PACKED_OBJECTS_TABLE)?;
+
+            for object_id in ctx.list_object_ids()? {
+                let object_path = ctx.object_file(&object_id);
+                let content = fs::read_to_string(&object_path)?;
+                table.insert(object_id, content.as_str())?;
+
+                // TODO: remove object file
+            }
+        }
+        write_txn.commit()?;
+
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
 pub struct PrintTreeCommand {
     /// Root object ID where to start printing the tree
     #[clap(long, short, value_name = "object")]
@@ -447,6 +476,9 @@ pub enum ToolCommands {
 
     /// fadvise
     Fadvise(tool::Fadvise),
+
+    /// redb commands
+    Redb(tool::ReDB),
 }
 
 impl ToolCommands {
@@ -456,6 +488,7 @@ impl ToolCommands {
             ToolCommands::Hash(cmd) => cmd.run(),
             ToolCommands::Fincore(cmd) => cmd.run(),
             ToolCommands::Fadvise(cmd) => cmd.run(),
+            ToolCommands::Redb(cmd) => cmd.run(),
         }
     }
 }

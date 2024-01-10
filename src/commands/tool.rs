@@ -5,12 +5,13 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 
-use crate::filesystem;
+use crate::{filesystem, ObjectID, PACKED_OBJECTS_TABLE};
 use clap::Args;
 use indicatif::ProgressBar;
 use rand::prelude::{thread_rng, Distribution};
 use rand_distr::Normal;
 use rayon::prelude::*;
+use redb::{Database, ReadableTable};
 
 #[derive(Debug, Args)]
 pub struct Hash {
@@ -42,7 +43,7 @@ impl Hash {
 
     fn contents_from_stdin() -> anyhow::Result<Vec<u8>> {
         let mut contents = Vec::new();
-        std::io::stdin().read_to_end(&mut contents)?;
+        io::stdin().read_to_end(&mut contents)?;
         Ok(contents)
     }
 }
@@ -201,6 +202,42 @@ impl Fadvise {
     pub fn run(&self) -> anyhow::Result<()> {
         let file = File::open(&self.file)?;
         filesystem::fadvise(&file, self.advise, self.offset, self.len)?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Args)]
+pub struct ReDB {
+    /// Path to the database file
+    db_path: PathBuf,
+
+    /// The object to look up
+    key: Option<ObjectID>,
+}
+
+impl ReDB {
+    pub fn run(&self) -> anyhow::Result<()> {
+        let db = Database::open(&self.db_path)?;
+
+        let read_txn = db.begin_read()?;
+
+        if let Some(object_id) = &self.key {
+            let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
+            match table.get(object_id)? {
+                Some(val) => {
+                    println!("{}", val.value());
+                }
+                None => {
+                    println!("not found");
+                }
+            };
+        } else {
+            let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
+            for range in table.iter()? {
+                let (object_id, _) = range?;
+                println!("{}", object_id.value());
+            }
+        }
         Ok(())
     }
 }
