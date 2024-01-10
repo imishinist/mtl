@@ -11,6 +11,7 @@ use clap::{Args, Subcommand};
 use console::{style, Style};
 use itertools::Itertools;
 use redb::Database;
+use scopeguard::defer;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
 use crate::{
@@ -68,8 +69,8 @@ pub struct CatObjectCommand {
 impl CatObjectCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = ctx.deref_object_ref(&self.object_id)?;
-        let object_file = ctx.object_file(&object_id);
-        let contents = fs::read_to_string(object_file)?;
+        let contents = ctx.read_object(&object_id)?;
+        let contents = String::from_utf8_lossy(&contents);
         print!("{}", contents);
 
         Ok(())
@@ -277,17 +278,26 @@ impl PackCommand {
         let pack_dir = ctx.pack_dir();
         fs::create_dir_all(&pack_dir)?;
 
-        let db = Database::create(ctx.pack_file())?;
+        let tmp_file = pack_dir.join("tmp");
+        defer! {
+            if tmp_file.exists() {
+                fs::remove_file(&tmp_file).unwrap();
+            }
+        }
+
+        let db = Database::create(tmp_file.clone())?;
         let write_txn = db.begin_write()?;
         {
             let mut table = write_txn.open_table(PACKED_OBJECTS_TABLE)?;
 
             for object_id in ctx.list_object_ids()? {
-                let object_path = ctx.object_file(&object_id);
-                let content = fs::read_to_string(&object_path)?;
-                table.insert(object_id, content.as_str())?;
+                let content = ctx.read_object(&object_id)?;
+                table.insert(object_id, content)?;
 
-                fs::remove_file(&object_path)?;
+                let object_path = ctx.object_file(&object_id);
+                if object_path.exists() {
+                    fs::remove_file(&object_path)?;
+                }
             }
         }
         write_txn.commit()?;
@@ -301,6 +311,10 @@ impl PackCommand {
 
             fs::remove_dir(dir.path())?;
         }
+        let pack_file = ctx.pack_file();
+        drop(ctx);
+
+        fs::rename(&tmp_file, pack_file)?;
 
         Ok(())
     }
@@ -407,10 +421,11 @@ pub struct GCCommand {
 impl GCCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let head_object = ctx.read_head()?;
+
         let mut objects = ctx
-            .object_files()?
+            .list_object_ids()?
             .iter()
-            .map(|x| (x.to_path_buf(), false))
+            .map(|x| (*x, false))
             .collect::<HashMap<_, _>>();
         Self::mark_used_object(&ctx, &head_object, &mut objects)?;
 
@@ -422,17 +437,24 @@ impl GCCommand {
 
         let mut deleted_objects = 0u64;
         let mut deleted_bytes = 0u64;
-        for (path, used) in objects {
+        for (object_id, used) in objects {
             if !used {
-                let metadata = fs::metadata(&path)?;
+                let path = ctx.object_file(&object_id);
+                let path_exists = path.exists();
+                // Note: not remove from packed db
+                if path_exists {
+                    let metadata = fs::metadata(&path)?;
+                    deleted_bytes += file_size(&metadata);
+                }
                 deleted_objects += 1;
-                deleted_bytes += file_size(&metadata);
 
-                if self.dry_run {
-                    println!("[dry-run] Removing {}", path.display());
-                } else {
-                    println!("Removing {}", path.display());
-                    fs::remove_file(path)?;
+                if path_exists {
+                    if self.dry_run {
+                        println!("[dry-run] Removing {}", path.display());
+                    } else {
+                        println!("Removing {}", path.display());
+                        fs::remove_file(path)?;
+                    }
                 }
             }
         }
@@ -454,17 +476,14 @@ impl GCCommand {
     pub fn mark_used_object(
         ctx: &Context,
         root_object: &ObjectID,
-        objects: &mut HashMap<PathBuf, bool>,
+        objects: &mut HashMap<ObjectID, bool>,
     ) -> anyhow::Result<(), ReadContentError> {
-        let root_path = ctx.object_file(root_object);
-        objects.insert(root_path, true);
+        objects.insert(*root_object, true);
 
         let tree = ctx.read_tree_contents(root_object)?;
         for object in tree {
             if object.is_tree() {
-                let object_path = ctx.object_file(&object.object_id);
-
-                objects.insert(object_path, true);
+                objects.insert(object.object_id, true);
                 Self::mark_used_object(ctx, &object.object_id, objects)?;
             }
         }
@@ -492,13 +511,13 @@ pub enum ToolCommands {
 }
 
 impl ToolCommands {
-    pub fn run(&self, _ctx: Context) -> anyhow::Result<()> {
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         match self {
             ToolCommands::Generate(cmd) => cmd.run(),
             ToolCommands::Hash(cmd) => cmd.run(),
             ToolCommands::Fincore(cmd) => cmd.run(),
             ToolCommands::Fadvise(cmd) => cmd.run(),
-            ToolCommands::Redb(cmd) => cmd.run(),
+            ToolCommands::Redb(cmd) => cmd.run(ctx),
         }
     }
 }

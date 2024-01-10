@@ -9,8 +9,8 @@ pub use error::*;
 pub use filesystem::*;
 use std::borrow::Borrow;
 
-use byteorder::ByteOrder;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
@@ -19,8 +19,9 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use byteorder::ByteOrder;
 use clap::ValueEnum;
-use redb::{RedbKey, RedbValue, TableDefinition, TypeName};
+use redb::{ReadableTable, RedbKey, RedbValue, TableDefinition, TypeName};
 
 use crate::hash::Hash;
 #[cfg(feature = "jemalloc")]
@@ -349,8 +350,13 @@ impl fmt::Display for Object {
     }
 }
 
+pub enum ObjectLocation {
+    Packed(ObjectID),
+    Fs(PathBuf),
+}
+
 const MTL_DIR: &str = ".mtl";
-pub(crate) const PACKED_OBJECTS_TABLE: TableDefinition<ObjectID, &str> =
+pub(crate) const PACKED_OBJECTS_TABLE: TableDefinition<ObjectID, Vec<u8>> =
     TableDefinition::new("packed-objects");
 
 pub struct Context {
@@ -365,7 +371,7 @@ pub struct Context {
 impl Context {
     pub fn new<P: Into<PathBuf>>(root_dir: P) -> anyhow::Result<Self> {
         let root_dir = root_dir.into();
-        let packed_db_file = root_dir.join(MTL_DIR).join("packed.redb");
+        let packed_db_file = root_dir.join(MTL_DIR).join("pack").join("packed.redb");
 
         let packed_db = if packed_db_file.exists() {
             Some(redb::Database::open(&packed_db_file)?)
@@ -415,6 +421,29 @@ impl Context {
             .join(&object_string[2..])
     }
 
+    pub fn read_object(&self, object_id: &ObjectID) -> anyhow::Result<Vec<u8>, ReadContentError> {
+        let object_file = self.object_file(object_id);
+        if let Ok(contents) = fs::read(object_file) {
+            return Ok(contents);
+        }
+
+        if let Some(packed_db) = &self.packed_db {
+            let read_txn = packed_db.begin_read()?;
+
+            let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
+            let ret = match table.get(object_id)? {
+                Some(val) => Ok(val.value()),
+                None => {
+                    println!("debug {}", object_id);
+                    Err(ReadContentError::ObjectNotFound)
+                }
+            };
+            ret
+        } else {
+            Err(ReadContentError::ObjectNotFound)
+        }
+    }
+
     pub fn object_files(&self) -> anyhow::Result<Vec<PathBuf>, ReadContentError> {
         let dir_name = self.root_dir.as_path();
         let object_dir = dir_name.join(MTL_DIR).join("objects");
@@ -449,7 +478,7 @@ impl Context {
     }
 
     pub fn list_object_ids(&self) -> anyhow::Result<Vec<ObjectID>, ReadContentError> {
-        let mut object_ids = Vec::new();
+        let mut object_ids = HashSet::new();
         for entry in self.object_files()? {
             let dir_name = entry
                 .parent()
@@ -467,10 +496,21 @@ impl Context {
 
             let object_id: ObjectID = buf.parse()?;
 
-            object_ids.push(object_id);
+            object_ids.insert(object_id);
             assert_eq!(object_id.to_string(), buf)
         }
-        Ok(object_ids)
+
+        if let Some(packed_db) = &self.packed_db {
+            let read_txn = packed_db.begin_read()?;
+
+            let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
+            for range in table.iter()? {
+                let (object_id, _) = range?;
+                object_ids.insert(object_id.value());
+            }
+        }
+
+        Ok(object_ids.into_iter().collect())
     }
 
     pub fn head_file(&self) -> PathBuf {
@@ -565,8 +605,8 @@ impl Context {
         &self,
         object_id: &ObjectID,
     ) -> Result<Vec<Object>, ReadContentError> {
-        let file_name = self.object_file(object_id);
-        let tree_contents = fs::read_to_string(file_name)?;
+        let tree_contents = self.read_object(object_id)?;
+        let tree_contents = String::from_utf8(tree_contents).unwrap();
 
         let mut objects = Vec::new();
         for line in tree_contents.lines() {

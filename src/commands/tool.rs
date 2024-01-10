@@ -5,13 +5,13 @@ use std::fs::File;
 use std::io;
 use std::io::Write;
 
-use crate::{filesystem, ObjectID, PACKED_OBJECTS_TABLE};
+use crate::{filesystem, Context, ObjectID, PACKED_OBJECTS_TABLE};
 use clap::Args;
 use indicatif::ProgressBar;
 use rand::prelude::{thread_rng, Distribution};
 use rand_distr::Normal;
 use rayon::prelude::*;
-use redb::{Database, ReadableTable};
+use redb::ReadableTable;
 
 #[derive(Debug, Args)]
 pub struct Hash {
@@ -208,24 +208,28 @@ impl Fadvise {
 
 #[derive(Debug, Args)]
 pub struct ReDB {
-    /// Path to the database file
-    db_path: PathBuf,
-
     /// The object to look up
     key: Option<ObjectID>,
 }
 
 impl ReDB {
-    pub fn run(&self) -> anyhow::Result<()> {
-        let db = Database::open(&self.db_path)?;
-
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
+        let db = match ctx.packed_db {
+            None => {
+                println!("no packed db");
+                return Ok(());
+            }
+            Some(db) => db,
+        };
         let read_txn = db.begin_read()?;
 
         if let Some(object_id) = &self.key {
             let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
             match table.get(object_id)? {
                 Some(val) => {
-                    println!("{}", val.value());
+                    let content = val.value();
+                    let s = String::from_utf8_lossy(&content);
+                    println!("{}", s);
                 }
                 None => {
                     println!("not found");

@@ -1,13 +1,26 @@
+use redb::{StorageError, TableError, TransactionError};
 use std::io;
 use std::num::ParseIntError;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ReadContentError {
+    #[error("object not found")]
+    ObjectNotFound,
+
     #[error(transparent)]
     IOError(#[from] io::Error),
 
     #[error(transparent)]
     ParseError(#[from] ParseError),
+
+    #[error(transparent)]
+    StorageError(#[from] StorageError),
+
+    #[error(transparent)]
+    TableError(#[from] TableError),
+
+    #[error(transparent)]
+    TransactionError(#[from] TransactionError),
 }
 
 #[derive(thiserror::Error, Debug)]

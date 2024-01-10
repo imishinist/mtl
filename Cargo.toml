@@ -24,6 +24,7 @@ rand = "0.8.5"
 rand_distr = "0.4.3"
 rayon = "1.8.0"
 redb = "1.4.0"
+scopeguard = "1.2.0"
 similar = "2.3.0"
 thiserror = "1.0.52"
 tikv-jemallocator = { version = "0.5.4", optional = true }
