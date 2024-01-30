@@ -218,10 +218,10 @@ fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> 
     }
 
     let object_id = ObjectID::from_contents(&contents);
-    let file_name = PathBuf::from(entry.path.file_name().ok_or(io::Error::new(
+    let file_name = entry.path.file_name().ok_or(io::Error::new(
         io::ErrorKind::NotFound,
         "failed to get file_name",
-    ))?);
+    ))?;
 
     Ok(Object::new_file(object_id, file_name))
 }

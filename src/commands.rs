@@ -162,7 +162,7 @@ impl DiffCommand {
                             |mut file_names: HashMap<RelativePath, Vec<_>>, change| {
                                 let object = change.value();
                                 file_names
-                                    .entry(object.file_name.clone())
+                                    .entry(object.file_path.clone())
                                     .or_default()
                                     .push((change, object));
                                 file_names
@@ -228,7 +228,7 @@ impl DiffCommand {
                     } else {
                         (Style::new().red(), Style::new().green())
                     };
-                let path = path.join(&object_a.file_name);
+                let path = path.join(&object_a.file_path);
                 println!(
                     "{}/{} {}/{}\t{}/{}\t{}",
                     style("-").red(),
@@ -241,7 +241,7 @@ impl DiffCommand {
                 );
             }
             (Some(object_a), None) => {
-                let path = path.join(&object_a.file_name);
+                let path = path.join(&object_a.file_path);
                 println!(
                     "{}/  {}/{}\t{}/{}\t{}",
                     style("-").red(),
@@ -253,7 +253,7 @@ impl DiffCommand {
                 );
             }
             (None, Some(object_b)) => {
-                let path = path.join(&object_b.file_name);
+                let path = path.join(&object_b.file_path);
                 println!(
                     " /{} {}/{}\t{}/{}\t{}",
                     style("+").green(),
@@ -378,7 +378,7 @@ impl PrintTreeCommand {
         let parent = parent.into();
         let objects = ctx.read_tree_contents(object_id)?;
         for object in &objects {
-            let file_name = parent.join(&object.file_name);
+            let file_name = parent.join(&object.file_path);
 
             match object.object_type {
                 ObjectType::Tree => {

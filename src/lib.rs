@@ -11,7 +11,6 @@ use std::borrow::Borrow;
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
@@ -53,10 +52,10 @@ impl RelativePath {
         }
     }
 
-    pub fn file_name(&self) -> Option<&OsStr> {
+    pub fn file_name(&self) -> Option<PathBuf> {
         match self {
             RelativePath::Root => None,
-            RelativePath::Path(path) => path.file_name(),
+            RelativePath::Path(path) => path.file_name().map(|f| PathBuf::from(f)),
         }
     }
 
@@ -281,7 +280,7 @@ pub struct Object {
     object_id: ObjectID,
 
     // only contains basename of file
-    file_name: RelativePath,
+    file_path: RelativePath,
 }
 
 impl Object {
@@ -293,7 +292,7 @@ impl Object {
         Object {
             object_type,
             object_id,
-            file_name: RelativePath::from(file_name),
+            file_path: RelativePath::from(file_name),
         }
     }
 
@@ -316,7 +315,7 @@ impl Object {
     pub fn size(&self) -> usize {
         // "tree" "\t" "d447b1ea40e6988b" "\t" string "\n"
         // 4 + 1 + 16 + 1 + str_len + 1
-        23 + self.file_name.as_os_str().len()
+        23 + self.file_path.as_os_str().len()
     }
 }
 
@@ -334,7 +333,7 @@ impl PartialOrd<Self> for Object {
 
 impl Ord for Object {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.file_name.cmp(&other.file_name)
+        self.file_path.cmp(&other.file_path)
     }
 }
 
@@ -345,7 +344,7 @@ impl fmt::Display for Object {
             "{}\t{}\t{}",
             self.object_type,
             self.object_id,
-            self.file_name.display()
+            self.file_path.file_name().unwrap_or_default().display()
         )
     }
 }
@@ -671,7 +670,7 @@ mod tests {
         let path = RelativePath::Path(PathBuf::from(os_string_path.clone()));
         assert_eq!(path.is_root(), false);
         assert_eq!(path.parent(), RelativePath::Root);
-        assert_eq!(path.file_name(), Some(os_string_path.as_os_str()));
+        assert_eq!(path.file_name(), Some(PathBuf::from(os_string_path)));
 
         let path = RelativePath::Path(PathBuf::from("foo/bar"));
         assert_eq!(path.is_root(), false);
@@ -733,7 +732,7 @@ mod tests {
         let mut compare_target = objects.clone();
 
         objects.sort();
-        compare_target.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+        compare_target.sort_by(|a, b| a.file_path.cmp(&b.file_path));
         assert_eq!(objects, compare_target);
         assert_eq!(
             vec![
@@ -742,7 +741,7 @@ mod tests {
                 RelativePath::from("c"),
                 RelativePath::from("d")
             ],
-            objects.into_iter().map(|o| o.file_name).collect::<Vec<_>>()
+            objects.into_iter().map(|o| o.file_path).collect::<Vec<_>>()
         );
     }
 
@@ -777,5 +776,14 @@ mod tests {
             "invalid_hex".parse::<ObjectRef>().unwrap(),
             ObjectRef::new_reference("invalid_hex")
         );
+    }
+
+    #[test]
+    fn test_object_display() {
+        let object = Object::new_file(
+            ObjectID::from_hex("d447b1ea40e6988b").unwrap(),
+            PathBuf::from("foo/bar/baz"),
+        );
+        assert_eq!(format!("{}", object), "file\td447b1ea40e6988b\tbaz");
     }
 }
