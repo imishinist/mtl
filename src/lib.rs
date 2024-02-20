@@ -322,7 +322,8 @@ impl ObjectExpr {
     ) -> Result<Option<ObjectID>, ReadContentError> {
         let file_path = components.next();
         if file_path.is_none() {
-            return Ok(None);
+            let object_id = ctx.deref_object_ref(object_ref)?;
+            return Ok(Some(object_id));
         }
         let file_path = file_path.unwrap();
 
@@ -333,7 +334,8 @@ impl ObjectExpr {
                 None => {}
                 Some(file_name) => {
                     if file_name.as_os_str() == file_path.as_os_str() {
-                        return Ok(Some(content.object_id));
+                        let object_ref = ObjectRef::new_id(content.object_id);
+                        return self.inner_resolve(ctx, &object_ref, components);
                     }
                 }
             }
