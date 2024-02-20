@@ -82,6 +82,21 @@ impl CatObjectCommand {
 }
 
 #[derive(Args, Debug)]
+pub struct RevParseCommand {
+    /// Object expr to dereference
+    #[clap(value_name = "object-id")]
+    object_id: ObjectExpr,
+}
+
+impl RevParseCommand {
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
+        let object_id = self.object_id.resolve(&ctx)?.ok_or(ReadContentError::ObjectNotFound)?;
+        println!("{}", object_id);
+        Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
 pub struct DiffCommand {
     #[clap(value_name = "object-id")]
     pub object_a: ObjectExpr,
