@@ -1,6 +1,7 @@
 use clap::Args;
 
-use crate::{Context, ObjectRef};
+use crate::ReadContentError::ObjectNotFound;
+use crate::{Context, ObjectExpr};
 
 #[derive(Args, Debug)]
 pub struct List {}
@@ -22,13 +23,13 @@ pub struct Save {
     ref_name: String,
 
     #[clap(value_name = "object-id")]
-    object_id: Option<ObjectRef>,
+    object_id: Option<ObjectExpr>,
 }
 
 impl Save {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = match self.object_id {
-            Some(ref object_id) => ctx.deref_object_ref(object_id)?,
+            Some(ref object_id) => object_id.resolve(&ctx)?.ok_or(ObjectNotFound)?,
             None => ctx.read_head()?,
         };
 

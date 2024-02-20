@@ -15,7 +15,7 @@ use scopeguard::defer;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
 use crate::{
-    file_size, Context, Object, ObjectID, ObjectRef, ObjectType, ReadContentError, RelativePath,
+    file_size, Context, Object, ObjectExpr, ObjectID, ObjectType, ReadContentError, RelativePath,
     PACKED_OBJECTS_TABLE,
 };
 
@@ -63,12 +63,16 @@ impl RefCommand {
 pub struct CatObjectCommand {
     /// Object ID to print
     #[clap(value_name = "object-id")]
-    object_id: ObjectRef,
+    object_id: ObjectExpr,
 }
 
 impl CatObjectCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let object_id = ctx.deref_object_ref(&self.object_id)?;
+        let object_id = self
+            .object_id
+            .resolve(&ctx)?
+            .ok_or(ReadContentError::ObjectNotFound)?;
+
         let contents = ctx.read_object(&object_id)?;
         let contents = String::from_utf8_lossy(&contents);
         print!("{}", contents);
@@ -80,10 +84,10 @@ impl CatObjectCommand {
 #[derive(Args, Debug)]
 pub struct DiffCommand {
     #[clap(value_name = "object-id")]
-    pub object_a: ObjectRef,
+    pub object_a: ObjectExpr,
 
     #[clap(value_name = "object-id")]
-    pub object_b: ObjectRef,
+    pub object_b: ObjectExpr,
 
     /// Maximum depth to print
     #[clap(long, value_name = "max-depth")]
@@ -92,8 +96,15 @@ pub struct DiffCommand {
 
 impl DiffCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let object_a = ctx.deref_object_ref(&self.object_a)?;
-        let object_b = ctx.deref_object_ref(&self.object_b)?;
+        let object_a = self
+            .object_a
+            .resolve(&ctx)?
+            .ok_or(ReadContentError::ObjectNotFound)?;
+        let object_b = self
+            .object_b
+            .resolve(&ctx)?
+            .ok_or(ReadContentError::ObjectNotFound)?;
+
         Self::print_diff(&ctx, &object_a, &object_b, self.max_depth)?;
 
         Ok(())
@@ -324,7 +335,7 @@ impl PackCommand {
 pub struct PrintTreeCommand {
     /// Root object ID where to start printing the tree
     #[clap(long, short, value_name = "object")]
-    root: Option<ObjectRef>,
+    root: Option<ObjectExpr>,
 
     /// Type of objects to print
     #[clap(long, short, value_name = "type")]
@@ -338,7 +349,9 @@ pub struct PrintTreeCommand {
 impl PrintTreeCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = match self.root {
-            Some(ref object_id) => ctx.deref_object_ref(object_id)?,
+            Some(ref object_id) => object_id
+                .resolve(&ctx)?
+                .ok_or(ReadContentError::ObjectNotFound)?,
             None => ctx.read_head()?,
         };
         let object_type = self.r#type.as_ref();
