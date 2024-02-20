@@ -15,7 +15,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::ops::Deref;
-use std::path::{Path, PathBuf};
+use std::path::{Components, Path, PathBuf};
 use std::str::FromStr;
 
 use byteorder::ByteOrder;
@@ -275,6 +275,74 @@ impl Ord for ObjectRef {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
+pub struct ObjectExpr {
+    object_ref: ObjectRef,
+    path: Option<PathBuf>,
+}
+
+impl FromStr for ObjectExpr {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let tmp = s.splitn(2, ":");
+        let tmp = tmp.collect::<Vec<&str>>();
+        if tmp.len() == 1 {
+            return Ok(Self {
+                object_ref: ObjectRef::from_str(tmp[0])?,
+                path: None,
+            });
+        }
+        if tmp.len() != 2 {
+            return Err("format invalid".to_string());
+        }
+
+        Ok(Self {
+            object_ref: ObjectRef::from_str(tmp[0])?,
+            path: Some(PathBuf::from(tmp[1])),
+        })
+    }
+}
+
+impl ObjectExpr {
+    pub fn resolve(&self, ctx: &Context) -> Result<Option<ObjectID>, ReadContentError> {
+        match &self.path {
+            Some(path) => {
+                let components = path.components();
+                self.inner_resolve(ctx, &self.object_ref, components)
+            }
+            None => Ok(Some(ctx.deref_object_ref(&self.object_ref)?)),
+        }
+    }
+
+    fn inner_resolve(
+        &self,
+        ctx: &Context,
+        object_ref: &ObjectRef,
+        mut components: Components,
+    ) -> Result<Option<ObjectID>, ReadContentError> {
+        let file_path = components.next();
+        if file_path.is_none() {
+            return Ok(None);
+        }
+        let file_path = file_path.unwrap();
+
+        let object = ctx.deref_object_ref(&object_ref)?;
+        let contents = ctx.read_tree_contents(&object)?;
+        for content in contents {
+            match content.file_path.file_name() {
+                None => {}
+                Some(file_name) => {
+                    if file_name.as_os_str() == file_path.as_os_str() {
+                        return Ok(Some(content.object_id));
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub struct Object {
     object_type: ObjectType,
     object_id: ObjectID,
@@ -432,10 +500,7 @@ impl Context {
             let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
             let ret = match table.get(object_id)? {
                 Some(val) => Ok(val.value()),
-                None => {
-                    println!("debug {}", object_id);
-                    Err(ReadContentError::ObjectNotFound)
-                }
+                None => Err(ReadContentError::ObjectNotFound),
             };
             ret
         } else {
