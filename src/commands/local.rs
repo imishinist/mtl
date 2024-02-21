@@ -21,23 +21,9 @@ struct FileEntry {
     mode: ObjectType,
     path: RelativePath,
     depth: usize,
-
-    #[cfg(unix)]
-    inode: u64,
 }
 
 impl FileEntry {
-    #[cfg(unix)]
-    fn new(mode: ObjectType, path: RelativePath, depth: usize, inode: u64) -> Self {
-        Self {
-            mode,
-            path,
-            depth,
-            inode,
-        }
-    }
-
-    #[cfg(not(unix))]
     fn new(mode: ObjectType, path: RelativePath, depth: usize) -> Self {
         Self { mode, path, depth }
     }
@@ -50,12 +36,6 @@ impl PartialOrd for FileEntry {
 }
 
 impl Ord for FileEntry {
-    #[cfg(unix)]
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.inode.cmp(&other.inode)
-    }
-
-    #[cfg(not(unix))]
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.path.cmp(&other.path)
     }
@@ -140,29 +120,11 @@ fn list_all_files(
             }
 
             let entry = if path.as_os_str().is_empty() {
-                FileEntry::new(
-                    ObjectType::Tree,
-                    RelativePath::Root,
-                    depth,
-                    #[cfg(unix)]
-                    entry.ino().unwrap(),
-                )
+                FileEntry::new(ObjectType::Tree, RelativePath::Root, depth)
             } else if ft.is_dir() {
-                FileEntry::new(
-                    ObjectType::Tree,
-                    relative_path,
-                    depth,
-                    #[cfg(unix)]
-                    entry.ino().unwrap(),
-                )
+                FileEntry::new(ObjectType::Tree, relative_path, depth)
             } else if ft.is_file() {
-                FileEntry::new(
-                    ObjectType::File,
-                    relative_path,
-                    depth,
-                    #[cfg(unix)]
-                    entry.ino().unwrap(),
-                )
+                FileEntry::new(ObjectType::File, relative_path, depth)
             } else {
                 log::warn!(
                     "ignored: not supported file type: {} \"{}\"",
@@ -394,10 +356,9 @@ impl Update {
                 ObjectType::Tree,
                 RelativePath::Path(tmp_path.clone()),
                 depth,
-                0,
             ));
         }
-        target_entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0, 0));
+        target_entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0));
 
         for entry in target_entries.files.iter() {
             println!("{:?}", entry);
@@ -597,13 +558,9 @@ fn target_entries(
         } else {
             ObjectType::File
         };
-
-        #[cfg(unix)]
-        entries.push_file_entry(FileEntry::new(object_type, relative_path, depth, 0));
-        #[cfg(not(unix))]
         entries.push_file_entry(FileEntry::new(object_type, relative_path, depth));
     }
-    entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0, 0));
+    entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0));
     Ok(entries)
 }
 
