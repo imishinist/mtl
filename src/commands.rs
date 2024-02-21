@@ -24,6 +24,9 @@ pub enum LocalCommand {
     /// Build a tree of objects
     Build(local::Build),
 
+    /// Update a tree of specified path
+    Update(local::Update),
+
     /// List target files
     List(local::List),
 }
@@ -32,6 +35,7 @@ impl LocalCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         match self {
             LocalCommand::Build(cmd) => cmd.run(ctx),
+            LocalCommand::Update(cmd) => cmd.run(ctx),
             LocalCommand::List(cmd) => cmd.run(ctx),
         }
     }
@@ -68,10 +72,7 @@ pub struct CatObjectCommand {
 
 impl CatObjectCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let object_id = self
-            .object_id
-            .resolve(&ctx)?
-            .ok_or(ReadContentError::ObjectNotFound)?;
+        let object_id = self.object_id.resolve(&ctx)?;
 
         let contents = ctx.read_object(&object_id)?;
         let contents = String::from_utf8_lossy(&contents);
@@ -90,7 +91,7 @@ pub struct RevParseCommand {
 
 impl RevParseCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let object_id = self.object_id.resolve(&ctx)?.ok_or(ReadContentError::ObjectNotFound)?;
+        let object_id = self.object_id.resolve(&ctx)?;
         println!("{}", object_id);
         Ok(())
     }
@@ -111,14 +112,8 @@ pub struct DiffCommand {
 
 impl DiffCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let object_a = self
-            .object_a
-            .resolve(&ctx)?
-            .ok_or(ReadContentError::ObjectNotFound)?;
-        let object_b = self
-            .object_b
-            .resolve(&ctx)?
-            .ok_or(ReadContentError::ObjectNotFound)?;
+        let object_a = self.object_a.resolve(&ctx)?;
+        let object_b = self.object_b.resolve(&ctx)?;
 
         Self::print_diff(&ctx, &object_a, &object_b, self.max_depth)?;
 
@@ -364,9 +359,7 @@ pub struct PrintTreeCommand {
 impl PrintTreeCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = match self.root {
-            Some(ref object_id) => object_id
-                .resolve(&ctx)?
-                .ok_or(ReadContentError::ObjectNotFound)?,
+            Some(ref object_id) => object_id.resolve(&ctx)?,
             None => ctx.read_head()?,
         };
         let object_type = self.r#type.as_ref();

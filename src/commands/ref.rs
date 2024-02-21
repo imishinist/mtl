@@ -1,6 +1,5 @@
 use clap::Args;
 
-use crate::ReadContentError::ObjectNotFound;
 use crate::{Context, ObjectExpr};
 
 #[derive(Args, Debug)]
@@ -29,7 +28,7 @@ pub struct Save {
 impl Save {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let object_id = match self.object_id {
-            Some(ref object_id) => object_id.resolve(&ctx)?.ok_or(ObjectNotFound)?,
+            Some(ref object_id) => object_id.resolve(&ctx)?,
             None => ctx.read_head()?,
         };
 

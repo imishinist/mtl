@@ -1,5 +1,6 @@
 use crate::{RelativePath, MTL_DIR};
 use std::os::unix::prelude::OsStrExt;
+use std::path::PathBuf;
 
 pub trait Filter: Send + Sync + Clone {
     fn path_matches(&self, path: &RelativePath) -> bool;
@@ -34,6 +35,14 @@ impl Filter for PathFilter {
         if self.target.is_root() {
             return true;
         }
+        let mut tmp = PathBuf::new();
+        for component in self.target.components() {
+            tmp.push(component);
+            if tmp.as_os_str() == path.as_os_str() {
+                return true;
+            }
+        }
+
         let target = self.target.as_path();
         let path = path.as_path();
         path.starts_with(target)
@@ -95,6 +104,18 @@ mod tests {
                 name: "root",
                 target: RelativePath::Root,
                 args: RelativePath::from("foo/bar/baz"),
+                expected: true,
+            },
+            TestCase {
+                name: "sub",
+                target: RelativePath::from("foo/bar"),
+                args: RelativePath::from("foo"),
+                expected: true,
+            },
+            TestCase {
+                name: "sub",
+                target: RelativePath::from("foo/bar/baz"),
+                args: RelativePath::from("foo/bar"),
                 expected: true,
             },
         ];

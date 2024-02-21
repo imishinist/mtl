@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Local(local) => local.run(ctx)?,
         Commands::Ref(ref_command) => ref_command.run(ctx)?,
         Commands::CatObject(cat_object) => cat_object.run(ctx)?,
-        Commands::RevParse(rev_parse) =>rev_parse.run(ctx)?,
+        Commands::RevParse(rev_parse) => rev_parse.run(ctx)?,
         Commands::Diff(diff) => diff.run(ctx)?,
         Commands::GC(gc) => gc.run(ctx)?,
         Commands::Pack(pack) => pack.run(ctx)?,

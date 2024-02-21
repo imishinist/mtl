@@ -12,9 +12,9 @@ use ignore::{WalkBuilder, WalkState};
 use itertools::Itertools;
 use rayon::prelude::*;
 
-use crate::filter::{Filter, MatchAllFilter};
+use crate::filter::{Filter, MatchAllFilter, PathFilter};
 use crate::progress::BuildProgressBar;
-use crate::{filesystem, Context, Object, ObjectID, ObjectType, RelativePath};
+use crate::{filesystem, Context, Object, ObjectID, ObjectRef, ObjectType, RelativePath};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct FileEntry {
@@ -344,6 +344,114 @@ impl Build {
             }
         }
         Ok(())
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct Update {
+    /// If true, don't write the object ID of the root tree to HEAD.
+    #[clap(short, long, default_value_t = false, verbatim_doc_comment)]
+    no_write_head: bool,
+
+    /// If true, scan hidden files.
+    #[clap(long, default_value_t = false, verbatim_doc_comment)]
+    hidden: bool,
+
+    /// If true, show progress bar.
+    #[clap(long, default_value_t = false, verbatim_doc_comment)]
+    progress: bool,
+
+    /// If true, drop cache after reading files.
+    #[clap(long, default_value_t = false, verbatim_doc_comment)]
+    drop_cache: bool,
+
+    path: PathBuf,
+}
+
+impl Update {
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
+        let mut ctx = ctx;
+        ctx.set_drop_cache(self.drop_cache);
+
+        let path_filter = PathFilter::new(RelativePath::Path(self.path.clone()));
+        let target_entries = target_entries(&ctx, path_filter, &None, self.hidden)?;
+        let max_depth = target_entries.max_depth;
+        log::info!(
+            "max_depth: {}, files: {}",
+            max_depth,
+            target_entries.files.len()
+        );
+
+        let updated_object = {
+            let pb = BuildProgressBar::new(
+                target_entries.num_files,
+                target_entries.num_dirs,
+                self.progress,
+            );
+            process_target_entries(&ctx, &pb, target_entries.files, max_depth)?
+        };
+        let updated_root_id = ctx.search_object(
+            &ObjectRef::new_id(updated_object.object_id),
+            self.path.clone(),
+        )?;
+
+        let object_ids =
+            ctx.search_object_with_routes(&ObjectRef::new_reference("HEAD"), self.path.clone())?;
+        if object_ids[0] == updated_root_id {
+            log::info!("nothing to update");
+            return Ok(());
+        }
+
+        let mut path_list = Vec::new();
+        let mut tmp_path = PathBuf::new();
+        for component in self.path.components() {
+            tmp_path.push(component);
+            path_list.push(tmp_path.clone());
+        }
+
+        let mut now = Object::new(
+            ObjectType::Tree,
+            updated_root_id,
+            path_list.pop().unwrap().file_name().unwrap(),
+        );
+        for object_id in &object_ids[1..] {
+            let mut contents = ctx.read_tree_contents(&object_id)?;
+            Self::update_tree_content(&mut contents, now);
+            let written_object_id = ctx.write_tree_contents(&contents)?;
+
+            now = Object::new(
+                ObjectType::Tree,
+                written_object_id,
+                path_list.pop().unwrap().file_name().unwrap(),
+            );
+        }
+
+        let head_object_id = ctx.read_head()?;
+        let mut head_tree = ctx.read_tree_contents(&head_object_id)?;
+        Self::update_tree_content(&mut head_tree, now);
+        let written_object_id = ctx.write_tree_contents(&head_tree)?;
+
+        match self.no_write_head {
+            true => println!("HEAD: {}", written_object_id),
+            false => {
+                ctx.write_head(&written_object_id)?;
+                println!("Written HEAD: {}", written_object_id);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn update_tree_content(contents: &mut Vec<Object>, target: Object) {
+        for content in contents.iter_mut() {
+            if content.file_path == target.file_path {
+                content.object_id = target.object_id.clone();
+                content.object_type = target.object_type.clone();
+                return;
+            }
+        }
+        contents.push(target);
+        contents.sort();
     }
 }
 

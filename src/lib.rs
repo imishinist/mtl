@@ -304,13 +304,20 @@ impl FromStr for ObjectExpr {
 }
 
 impl ObjectExpr {
-    pub fn resolve(&self, ctx: &Context) -> Result<Option<ObjectID>, ReadContentError> {
+    pub fn resolve_with_routes(&self, ctx: &Context) -> Result<Vec<ObjectID>, ReadContentError> {
         match &self.path {
             Some(path) => {
                 let components = path.components();
-                self.inner_resolve(ctx, &self.object_ref, components)
+                Ok(self.inner_resolve(ctx, &self.object_ref, components)?)
             }
-            None => Ok(Some(ctx.deref_object_ref(&self.object_ref)?)),
+            None => Ok(vec![ctx.deref_object_ref(&self.object_ref)?]),
+        }
+    }
+
+    pub fn resolve(&self, ctx: &Context) -> Result<ObjectID, ReadContentError> {
+        match &self.path {
+            Some(path) => ctx.search_object(&self.object_ref, path.clone()),
+            None => Ok(ctx.deref_object_ref(&self.object_ref)?),
         }
     }
 
@@ -319,11 +326,11 @@ impl ObjectExpr {
         ctx: &Context,
         object_ref: &ObjectRef,
         mut components: Components,
-    ) -> Result<Option<ObjectID>, ReadContentError> {
+    ) -> Result<Vec<ObjectID>, ReadContentError> {
         let file_path = components.next();
         if file_path.is_none() {
-            let object_id = ctx.deref_object_ref(object_ref)?;
-            return Ok(Some(object_id));
+            // let object_id = ctx.deref_object_ref(object_ref)?;
+            return Ok(vec![]);
         }
         let file_path = file_path.unwrap();
 
@@ -335,12 +342,14 @@ impl ObjectExpr {
                 Some(file_name) => {
                     if file_name.as_os_str() == file_path.as_os_str() {
                         let object_ref = ObjectRef::new_id(content.object_id);
-                        return self.inner_resolve(ctx, &object_ref, components);
+                        let mut results = self.inner_resolve(ctx, &object_ref, components)?;
+                        results.push(content.object_id);
+                        return Ok(results);
                     }
                 }
             }
         }
-        Ok(None)
+        Ok(vec![])
     }
 }
 
@@ -604,6 +613,59 @@ impl Context {
             }
             ObjectRef::ID(object_id) => Ok(*object_id),
         }
+    }
+
+    pub fn search_object(
+        &self,
+        base: &ObjectRef,
+        path: PathBuf,
+    ) -> Result<ObjectID, ReadContentError> {
+        let components = path.components();
+        let routes = self.inner_search_object_with_routes(&base, components)?;
+        if routes.len() > 0 {
+            Ok(routes[0])
+        } else {
+            Err(ReadContentError::ObjectNotFound)
+        }
+    }
+
+    pub fn search_object_with_routes(
+        &self,
+        base: &ObjectRef,
+        path: PathBuf,
+    ) -> Result<Vec<ObjectID>, ReadContentError> {
+        let components = path.components();
+        self.inner_search_object_with_routes(base, components)
+    }
+
+    fn inner_search_object_with_routes(
+        &self,
+        object_ref: &ObjectRef,
+        mut components: Components,
+    ) -> Result<Vec<ObjectID>, ReadContentError> {
+        let file_path = components.next();
+        if file_path.is_none() {
+            return Ok(vec![]);
+        }
+        let file_path = file_path.unwrap();
+
+        let object = self.deref_object_ref(&object_ref)?;
+        let contents = self.read_tree_contents(&object)?;
+        for content in contents {
+            match content.file_path.file_name() {
+                None => {}
+                Some(file_name) => {
+                    if file_name.as_os_str() == file_path.as_os_str() {
+                        let object_ref = ObjectRef::new_id(content.object_id);
+                        let mut results =
+                            self.inner_search_object_with_routes(&object_ref, components)?;
+                        results.push(content.object_id);
+                        return Ok(results);
+                    }
+                }
+            }
+        }
+        Ok(vec![])
     }
 
     pub fn list_object_refs(&self) -> anyhow::Result<Vec<ObjectRef>, ReadContentError> {
