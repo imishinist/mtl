@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::{fs, io};
 
@@ -12,7 +12,7 @@ use ignore::{WalkBuilder, WalkState};
 use itertools::Itertools;
 use rayon::prelude::*;
 
-use crate::filter::{Filter, MatchAllFilter, PathFilter};
+use crate::filter::{Filter, MatchAllFilter};
 use crate::progress::BuildProgressBar;
 use crate::{filesystem, Context, Object, ObjectID, ObjectRef, ObjectType, RelativePath};
 
@@ -91,6 +91,7 @@ impl TargetEntries {
 
 fn list_all_files(
     ctx: &Context,
+    target_path: Option<&Path>,
     filter: impl Filter,
     hidden: bool,
 ) -> anyhow::Result<TargetEntries> {
@@ -104,7 +105,11 @@ fn list_all_files(
     });
 
     let root_dir = ctx.root_dir();
-    let walker = WalkBuilder::new(root_dir)
+    let (target, base_depth) = match target_path {
+        Some(t) => (root_dir.join(t), t.components().count()),
+        None => (root_dir.to_path_buf(), 0),
+    };
+    let walker = WalkBuilder::new(&target)
         .hidden(!hidden)
         .threads(num_cpus::get())
         .build_parallel();
@@ -120,7 +125,7 @@ fn list_all_files(
                 }
             };
 
-            let depth = entry.depth();
+            let depth = entry.depth() + base_depth;
             let ft = match entry.file_type() {
                 Some(ft) => ft,
                 None => {
@@ -319,7 +324,7 @@ impl Build {
         let mut ctx = ctx;
         ctx.set_drop_cache(self.drop_cache);
 
-        let target_entries = target_entries(&ctx, MatchAllFilter, &self.input, self.hidden)?;
+        let target_entries = target_entries(&ctx, None, MatchAllFilter, &self.input, self.hidden)?;
         let max_depth = target_entries.max_depth;
         log::info!(
             "max_depth: {}, files: {}",
@@ -373,9 +378,31 @@ impl Update {
         let mut ctx = ctx;
         ctx.set_drop_cache(self.drop_cache);
 
-        let path_filter = PathFilter::new(RelativePath::Path(self.path.clone()));
-        let target_entries = target_entries(&ctx, path_filter, &None, self.hidden)?;
+        let mut target_entries =
+            target_entries(&ctx, Some(&self.path), MatchAllFilter, &None, self.hidden)?;
         let max_depth = target_entries.max_depth;
+
+        let mut depth = 0;
+        let mut path_list = Vec::new();
+        let mut tmp_path = PathBuf::new();
+        for component in self.path.components() {
+            tmp_path.push(component);
+            path_list.push(tmp_path.clone());
+
+            depth += 1;
+            target_entries.push_file_entry(FileEntry::new(
+                ObjectType::Tree,
+                RelativePath::Path(tmp_path.clone()),
+                depth,
+                0,
+            ));
+        }
+        target_entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0, 0));
+
+        for entry in target_entries.files.iter() {
+            println!("{:?}", entry);
+        }
+
         log::info!(
             "max_depth: {}, files: {}",
             max_depth,
@@ -400,13 +427,6 @@ impl Update {
         if object_ids[0] == updated_root_id {
             log::info!("nothing to update");
             return Ok(());
-        }
-
-        let mut path_list = Vec::new();
-        let mut tmp_path = PathBuf::new();
-        for component in self.path.components() {
-            tmp_path.push(component);
-            path_list.push(tmp_path.clone());
         }
 
         let mut now = Object::new(
@@ -515,7 +535,7 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let target_entries = target_entries(&ctx, MatchAllFilter, &self.input, self.hidden)?;
+        let target_entries = target_entries(&ctx, None, MatchAllFilter, &self.input, self.hidden)?;
         log::info!(
             "max_depth: {}, files: {}",
             target_entries.max_depth,
@@ -534,12 +554,13 @@ impl List {
 
 fn target_entries(
     ctx: &Context,
+    target_path: Option<&Path>,
     filter: impl Filter,
     input: &Option<OsString>,
     hidden: bool,
 ) -> anyhow::Result<TargetEntries> {
     let Some(input) = &input else {
-        return list_all_files(ctx, filter, hidden);
+        return list_all_files(ctx, target_path, filter, hidden);
     };
     let input = input.as_os_str();
 
