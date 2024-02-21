@@ -521,6 +521,7 @@ pub enum ToolCommands {
     /// calculate xxHash
     Hash(tool::Hash),
 
+    #[cfg(not(windows))]
     /// fincore
     Fincore(tool::Fincore),
 
@@ -536,6 +537,7 @@ impl ToolCommands {
         match self {
             ToolCommands::Generate(cmd) => cmd.run(),
             ToolCommands::Hash(cmd) => cmd.run(),
+            #[cfg(not(windows))]
             ToolCommands::Fincore(cmd) => cmd.run(),
             ToolCommands::Fadvise(cmd) => cmd.run(),
             ToolCommands::Redb(cmd) => cmd.run(ctx),

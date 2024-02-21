@@ -1,6 +1,7 @@
-use redb::{StorageError, TableError, TransactionError};
 use std::io;
 use std::num::ParseIntError;
+
+use redb::{StorageError, TableError, TransactionError};
 
 #[derive(thiserror::Error, Debug)]
 pub enum ReadContentError {
