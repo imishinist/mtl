@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{BufRead, Read};
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ use rayon::prelude::*;
 
 use crate::filter::{Filter, MatchAllFilter};
 use crate::progress::BuildProgressBar;
-use crate::{filesystem, Context, Object, ObjectID, ObjectRef, ObjectType, RelativePath};
+use crate::{filesystem, Context, Object, ObjectID, ObjectType, RelativePath};
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct FileEntry {
@@ -76,11 +76,30 @@ fn list_all_files(
     hidden: bool,
 ) -> anyhow::Result<TargetEntries> {
     let (tx, rx) = crossbeam_channel::bounded::<FileEntry>(100);
+
+    let target_path_clone = target_path.clone().map(|f| f.to_path_buf());
     let output_thread = std::thread::spawn(move || {
         let mut entries = TargetEntries::new();
         for entry in rx {
             entries.push_file_entry(entry);
         }
+
+        if let Some(target_path) = target_path_clone {
+            let mut depth = 0;
+            let mut tmp_path = PathBuf::new();
+            for component in target_path.components() {
+                tmp_path.push(component);
+
+                depth += 1;
+                entries.push_file_entry(FileEntry::new(
+                    ObjectType::Tree,
+                    RelativePath::Path(tmp_path.clone()),
+                    depth,
+                ));
+            }
+        }
+
+        entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0));
         entries
     });
 
@@ -119,9 +138,11 @@ fn list_all_files(
                 return WalkState::Continue;
             }
 
-            let entry = if path.as_os_str().is_empty() {
-                FileEntry::new(ObjectType::Tree, RelativePath::Root, depth)
-            } else if ft.is_dir() {
+            if path.as_os_str().is_empty() {
+                return WalkState::Continue;
+            }
+
+            let entry = if ft.is_dir() {
                 FileEntry::new(ObjectType::Tree, relative_path, depth)
             } else if ft.is_file() {
                 FileEntry::new(ObjectType::File, relative_path, depth)
@@ -199,10 +220,6 @@ fn process_target_entries(
     files: Vec<FileEntry>,
     max_depth: usize,
 ) -> io::Result<Object> {
-    let mut files = files;
-    #[cfg(unix)]
-    files.par_sort();
-
     let (files, mut dirs) = files
         .into_iter()
         .partition::<Vec<_>, _>(|entry| matches!(entry.mode, ObjectType::File));
@@ -340,30 +357,9 @@ impl Update {
         let mut ctx = ctx;
         ctx.set_drop_cache(self.drop_cache);
 
-        let mut target_entries =
+        let target_entries =
             target_entries(&ctx, Some(&self.path), MatchAllFilter, &None, self.hidden)?;
         let max_depth = target_entries.max_depth;
-
-        let mut depth = 0;
-        let mut path_list = Vec::new();
-        let mut tmp_path = PathBuf::new();
-        for component in self.path.components() {
-            tmp_path.push(component);
-            path_list.push(tmp_path.clone());
-
-            depth += 1;
-            target_entries.push_file_entry(FileEntry::new(
-                ObjectType::Tree,
-                RelativePath::Path(tmp_path.clone()),
-                depth,
-            ));
-        }
-        target_entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0));
-
-        for entry in target_entries.files.iter() {
-            println!("{:?}", entry);
-        }
-
         log::info!(
             "max_depth: {}, files: {}",
             max_depth,
@@ -378,16 +374,22 @@ impl Update {
             );
             process_target_entries(&ctx, &pb, target_entries.files, max_depth)?
         };
-        let updated_root_id = ctx.search_object(
-            &ObjectRef::new_id(updated_object.object_id),
-            self.path.clone(),
-        )?;
+        let updated_root_id = ctx.search_object(&updated_object.as_object_ref(), &self.path)?;
 
-        let object_ids =
-            ctx.search_object_with_routes(&ObjectRef::new_reference("HEAD"), self.path.clone())?;
-        if object_ids[0] == updated_root_id {
+        let head = "HEAD".into();
+        let mut object_ids = ctx.search_object_with_routes(&head, &self.path)?;
+        object_ids.push(ctx.read_head()?);
+        let (object_id, object_ids) = object_ids.split_first().unwrap();
+        if *object_id == updated_root_id {
             log::info!("nothing to update");
             return Ok(());
+        }
+
+        let mut path_list = vec![PathBuf::new()];
+        let mut tmp_path = PathBuf::new();
+        for component in self.path.components() {
+            tmp_path.push(component);
+            path_list.push(tmp_path.clone());
         }
 
         let mut now = Object::new(
@@ -395,28 +397,25 @@ impl Update {
             updated_root_id,
             path_list.pop().unwrap().file_name().unwrap(),
         );
-        for object_id in &object_ids[1..] {
+        for object_id in object_ids {
             let mut contents = ctx.read_tree_contents(&object_id)?;
             Self::update_tree_content(&mut contents, now);
-            let written_object_id = ctx.write_tree_contents(&contents)?;
 
             now = Object::new(
                 ObjectType::Tree,
-                written_object_id,
-                path_list.pop().unwrap().file_name().unwrap(),
+                ctx.write_tree_contents(&contents)?,
+                path_list
+                    .pop()
+                    .unwrap()
+                    .file_name()
+                    .unwrap_or(OsStr::new("")),
             );
         }
-
-        let head_object_id = ctx.read_head()?;
-        let mut head_tree = ctx.read_tree_contents(&head_object_id)?;
-        Self::update_tree_content(&mut head_tree, now);
-        let written_object_id = ctx.write_tree_contents(&head_tree)?;
-
         match self.no_write_head {
-            true => println!("HEAD: {}", written_object_id),
+            true => println!("HEAD: {}", now.object_id),
             false => {
-                ctx.write_head(&written_object_id)?;
-                println!("Written HEAD: {}", written_object_id);
+                ctx.write_head(&now.object_id)?;
+                println!("Written HEAD: {}", now.object_id);
             }
         }
 

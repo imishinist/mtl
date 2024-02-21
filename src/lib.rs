@@ -257,6 +257,12 @@ impl FromStr for ObjectRef {
     }
 }
 
+impl From<&str> for ObjectRef {
+    fn from(value: &str) -> Self {
+        ObjectRef::Reference(value.to_string())
+    }
+}
+
 impl PartialOrd for ObjectRef {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
@@ -316,7 +322,7 @@ impl ObjectExpr {
 
     pub fn resolve(&self, ctx: &Context) -> Result<ObjectID, ReadContentError> {
         match &self.path {
-            Some(path) => ctx.search_object(&self.object_ref, path.clone()),
+            Some(path) => ctx.search_object(&self.object_ref, path),
             None => Ok(ctx.deref_object_ref(&self.object_ref)?),
         }
     }
@@ -395,6 +401,10 @@ impl Object {
         // "tree" "\t" "d447b1ea40e6988b" "\t" string "\n"
         // 4 + 1 + 16 + 1 + str_len + 1
         23 + self.file_path.as_os_str().len()
+    }
+
+    pub fn as_object_ref(&self) -> ObjectRef {
+        ObjectRef::new_id(self.object_id)
     }
 }
 
@@ -618,7 +628,7 @@ impl Context {
     pub fn search_object(
         &self,
         base: &ObjectRef,
-        path: PathBuf,
+        path: &Path,
     ) -> Result<ObjectID, ReadContentError> {
         let components = path.components();
         let routes = self.inner_search_object_with_routes(&base, components)?;
@@ -632,7 +642,7 @@ impl Context {
     pub fn search_object_with_routes(
         &self,
         base: &ObjectRef,
-        path: PathBuf,
+        path: &Path,
     ) -> Result<Vec<ObjectID>, ReadContentError> {
         let components = path.components();
         self.inner_search_object_with_routes(base, components)
