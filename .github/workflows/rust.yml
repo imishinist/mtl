@@ -20,23 +20,23 @@ jobs:
         platform:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
-            skipt_tests: true
+            skip_tests: false
             bin: mtl
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            skipt_tests: true
+            skip_tests: false
             bin: mtl
           - os: macos-latest
             target: x86_64-apple-darwin
-            skipt_tests: true
+            skip_tests: false
             bin: mtl
           - os: macos-latest
             target: aarch64-apple-darwin
-            skipt_tests: true
+            skip_tests: false
             bin: mtl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            skipt_tests: true
+            skip_tests: true
             bin: mtl.exe
 
     steps:
@@ -47,7 +47,7 @@ jobs:
         echo "PROJECT_NAME=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -n1)" >> $GITHUB_ENV
     - name: Install musl-tools on Linux
       run: sudo apt-get update --yes && sudo apt-get install --yes musl-tools
-      if: contains(matrix.platform.name, 'musl')
+      if: contains(matrix.platform.target, 'musl')
     - name: Build binary
       uses: houseabsolute/actions-rust-cross@v0
       with:
@@ -63,7 +63,7 @@ jobs:
         target: ${{ matrix.platform.target }}
         toolchain: stable
         args: "--locked"
-      if: ${{ !matrix.platform.skipt_tests }}
+      if: ${{ !matrix.platform.skip_tests }}
 
   e2e-test:
     runs-on: ubuntu-latest
