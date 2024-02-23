@@ -675,7 +675,7 @@ impl Context {
                 }
             }
         }
-        Ok(vec![])
+        Err(ReadContentError::ObjectNotFound)
     }
 
     pub fn list_object_refs(&self) -> anyhow::Result<Vec<ObjectRef>, ReadContentError> {
