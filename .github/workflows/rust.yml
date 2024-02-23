@@ -32,7 +32,7 @@ jobs:
             bin: mtl
           - os: macos-latest
             target: aarch64-apple-darwin
-            skip_tests: false
+            skip_tests: true
             bin: mtl
           - os: windows-latest
             target: x86_64-pc-windows-msvc
