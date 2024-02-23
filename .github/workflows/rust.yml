@@ -13,11 +13,11 @@ env:
 jobs:
   build:
 
-    runs-on: ${{ matrix.job.os }}
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
       matrix:
-        job:
+        platform:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             skipt_tests: true
