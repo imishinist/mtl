@@ -18,45 +18,61 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-gnu, use-cross: false, extension: "" }
-          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, use-cross: true, extension: "" }
-          - { os: ubuntu-latest, target: aarch64-unknown-linux-gnu, use-cross: true, extension: "" }
-          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, use-cross: true, extension: "" }
-          - { os: macos-latest, target: x86_64-apple-darwin, use-cross: false, extension: "" }
-          - { os: macos-latest, target: aarch64-apple-darwin, use-cross: false, extension: "" }
-          - { os: windows-latest, target: x86_64-pc-windows-msvc, use-cross: false, extension: .exe }
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            skipt_tests: true
+            bin: mtl
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            skipt_tests: true
+            bin: mtl
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            skipt_tests: true
+            bin: mtl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            skipt_tests: true
+            bin: mtl
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            skipt_tests: true
+            bin: mtl.exe
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Extract crate information
       shell: bash
       run: |
         echo "PROJECT_NAME=$(sed -n 's/^name = "\(.*\)"/\1/p' Cargo.toml | head -n1)" >> $GITHUB_ENV
-    - name: Install Rust toolchain
-      uses: actions-rs/toolchain@v1
+    - name: Install musl-tools on Linux
+      run: sudo apt-get update --yes && sudo apt-get install --yes musl-tools
+      if: contains(matrix.platform.name, 'musl')
+    - name: Build binary
+      uses: houseabsolute/actions-rust-cross@v0
       with:
+        command: "build"
+        target: ${{ matrix.platform.target }}
         toolchain: stable
-        target: ${{ matrix.job.target }}
-        override: true
-        profile: minimal
-    - name: Build
-      uses: actions-rs/cargo@v1
+        args: "--locked"
+        strip: true
+    - name: Run tests
+      uses: houseabsolute/actions-rust-cross@v0
       with:
-        use-cross: ${{ matrix.job.use-cross }}
-        command: build
-        args: --release --target ${{ matrix.job.target }}
+        command: "test"
+        target: ${{ matrix.platform.target }}
+        toolchain: stable
+        args: "--locked"
+      if: ${{ !matrix.platform.skipt_tests }}
 
   e2e-test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
-    - name: Install cargo-make
-      uses: actions-rs/cargo@v1
-      with:
-        command: install
-        args: --debug cargo-make
+    - uses: actions/checkout@v4
+    - name: Build
+      run: cargo build --locked
     - name: Run TEST
-      uses: actions-rs/cargo@v1
-      with:
-        command: make
-        args: TEST
+      run: |
+        while read -r line; do
+          bash $line
+        done < <(find tests -name "*.sh" -type f -perm -u+x)
