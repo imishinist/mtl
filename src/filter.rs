@@ -1,6 +1,6 @@
-use crate::{RelativePath, MTL_DIR};
-use std::os::unix::prelude::OsStrExt;
 use std::path::PathBuf;
+
+use crate::{RelativePath, MTL_DIR};
 
 pub trait Filter: Send + Sync + Clone {
     fn path_matches(&self, path: &RelativePath) -> bool;
@@ -11,7 +11,7 @@ pub struct MatchAllFilter;
 
 impl Filter for MatchAllFilter {
     fn path_matches(&self, path: &RelativePath) -> bool {
-        let path = path.as_os_str().as_bytes();
+        let path = path.as_os_str().as_encoded_bytes();
         !path.starts_with(MTL_DIR.as_bytes()) && !path.starts_with(b".git")
     }
 }

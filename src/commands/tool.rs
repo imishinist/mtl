@@ -1,17 +1,19 @@
-use std::io::Read;
-use std::path::{Path, PathBuf};
-
 use std::fs::File;
 use std::io;
+use std::io::Read;
 use std::io::Write;
+#[cfg(not(windows))]
+use std::path::Path;
+use std::path::PathBuf;
 
-use crate::{filesystem, Context, ObjectID, PACKED_OBJECTS_TABLE};
 use clap::Args;
 use indicatif::ProgressBar;
 use rand::prelude::{thread_rng, Distribution};
 use rand_distr::Normal;
 use rayon::prelude::*;
 use redb::ReadableTable;
+
+use crate::{filesystem, Context, ObjectID, PACKED_OBJECTS_TABLE};
 
 #[derive(Debug, Args)]
 pub struct Hash {
@@ -121,6 +123,7 @@ impl Generate {
     }
 }
 
+#[cfg(not(windows))]
 #[derive(Debug, Clone, Copy)]
 struct CacheState {
     total_size: u64,
@@ -130,11 +133,13 @@ struct CacheState {
     cached_percentage: f64,
 }
 
+#[cfg(not(windows))]
 #[derive(Debug, Args)]
 pub struct Fincore {
     input: Vec<PathBuf>,
 }
 
+#[cfg(not(windows))]
 impl Fincore {
     fn fincore<P: AsRef<Path>>(path: P) -> io::Result<CacheState> {
         let file = File::open(path)?;
