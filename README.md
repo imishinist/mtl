@@ -1,5 +1,7 @@
 # mtl
 
+[![Rust](https://github.com/imishinist/mtl/actions/workflows/rust.yml/badge.svg)](https://github.com/imishinist/mtl/actions/workflows/rust.yml)
+
 Tools for recursively computing and indexing directory hashes.
 
 It is based on git's tree object structure.
