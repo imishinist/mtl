@@ -1,7 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::{env, time};
 
-use clap::{Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 
 use mtl::{commands, Context};
 
@@ -49,6 +50,28 @@ enum Commands {
     /// Tool subcommands
     #[command(subcommand)]
     Tool(commands::ToolCommands),
+
+    /// Generate shell completion script
+    Completion(CompletionCommand),
+}
+
+#[derive(Args, Debug)]
+struct CompletionCommand {
+    shell: Shell,
+}
+
+impl CompletionCommand {
+    pub fn run(&self) {
+        let first_arg = env::args().next();
+        let program_name = first_arg
+            .as_ref()
+            .map(Path::new)
+            .and_then(|path| path.file_stem())
+            .and_then(|file| file.to_str())
+            .unwrap_or("mtl");
+        let mut cmd = MTLCommands::command();
+        clap_complete::generate(self.shell, &mut cmd, program_name, &mut std::io::stdout());
+    }
 }
 
 fn setup_signal_handler() {
@@ -83,6 +106,7 @@ fn main() -> anyhow::Result<()> {
         Commands::Pack(pack) => pack.run(ctx)?,
         Commands::PrintTree(print_tree) => print_tree.run(ctx)?,
         Commands::Tool(tool) => tool.run(ctx)?,
+        Commands::Completion(completion) => completion.run(),
     }
 
     log::info!("Elapsed time: {:?}", start.elapsed());
