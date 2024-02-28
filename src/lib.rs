@@ -1,3 +1,4 @@
+pub(crate) mod builder;
 pub mod commands;
 pub mod error;
 pub(crate) mod filesystem;

@@ -1,25 +1,11 @@
-use ignore::DirEntry;
 use std::path::{Path, PathBuf};
 
 use crate::{RelativePath, MTL_DIR};
 
-pub trait Filter: Send + Sync + Clone + 'static {
+pub trait Filter: Send + Sync {
     fn root(&self) -> &Path;
 
     fn path_matches(&self, path: &RelativePath) -> bool;
-
-    // skip when false
-    fn filter_entry(&self) -> impl Fn(&DirEntry) -> bool + Send + Sync + 'static {
-        let filter = self.clone();
-        let root = filter.root().to_path_buf();
-        move |entry: &DirEntry| {
-            let Ok(path) = entry.path().strip_prefix(&root) else {
-                return false;
-            };
-            let relative_path = RelativePath::from(path);
-            filter.path_matches(&relative_path)
-        }
-    }
 }
 
 #[derive(Clone)]
