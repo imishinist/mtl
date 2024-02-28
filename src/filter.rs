@@ -46,14 +46,24 @@ impl Filter for MatchAllFilter {
 pub struct PathFilter {
     root: PathBuf,
     target: RelativePath,
+    parents: Vec<RelativePath>,
 }
 
 impl PathFilter {
     #[allow(dead_code)]
     pub fn new(root: PathBuf, target: impl Into<RelativePath>) -> Self {
+        let target = target.into();
+        let mut parents = Vec::new();
+
+        let mut tmp = PathBuf::new();
+        for component in target.components() {
+            tmp.push(component);
+            parents.push(RelativePath::from(tmp.as_path()));
+        }
         Self {
             root,
-            target: target.into(),
+            target,
+            parents,
         }
     }
 }
@@ -67,10 +77,8 @@ impl Filter for PathFilter {
         if self.target.is_root() {
             return true;
         }
-        let mut tmp = PathBuf::new();
-        for component in self.target.components() {
-            tmp.push(component);
-            if tmp.as_os_str() == path.as_os_str() {
+        for parent in &self.parents {
+            if parent.as_os_str() == path.as_os_str() {
                 return true;
             }
         }
