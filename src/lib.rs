@@ -56,7 +56,7 @@ impl RelativePath {
     pub fn file_name(&self) -> Option<PathBuf> {
         match self {
             RelativePath::Root => None,
-            RelativePath::Path(path) => path.file_name().map(|f| PathBuf::from(f)),
+            RelativePath::Path(path) => path.file_name().map(PathBuf::from),
         }
     }
 
@@ -291,7 +291,7 @@ impl FromStr for ObjectExpr {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let tmp = s.splitn(2, ":");
+        let tmp = s.splitn(2, ':');
         let tmp = tmp.collect::<Vec<&str>>();
         if tmp.len() == 1 {
             return Ok(Self {
@@ -585,12 +585,11 @@ impl Context {
         path: &Path,
     ) -> Result<ObjectID, ReadContentError> {
         let components = path.components();
-        let routes = self.inner_search_object_with_routes(&base, components)?;
-        if routes.len() > 0 {
-            Ok(routes[0])
-        } else {
-            Err(ReadContentError::ObjectNotFound)
+        let routes = self.inner_search_object_with_routes(base, components)?;
+        if routes.is_empty() {
+            return Err(ReadContentError::ObjectNotFound);
         }
+        Ok(routes[0])
     }
 
     pub fn search_object_with_routes(
@@ -611,7 +610,7 @@ impl Context {
             return Ok(vec![]);
         };
 
-        let object = self.deref_object_ref(&object_ref)?;
+        let object = self.deref_object_ref(object_ref)?;
         let contents = self.read_tree_contents(&object)?;
         for content in contents {
             let Some(file_name) = content.file_path.file_name() else {

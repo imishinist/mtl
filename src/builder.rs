@@ -73,7 +73,7 @@ impl Builder {
             path_list.pop().unwrap().file_name().unwrap(),
         );
         for object_id in object_ids {
-            let mut contents = ctx.read_tree_contents(&object_id)?;
+            let mut contents = ctx.read_tree_contents(object_id)?;
             Self::update_tree_content(&mut contents, now);
 
             now = Object::new(
@@ -93,8 +93,8 @@ impl Builder {
     fn update_tree_content(contents: &mut Vec<Object>, target: Object) {
         for content in contents.iter_mut() {
             if content.file_path == target.file_path {
-                content.object_id = target.object_id.clone();
-                content.object_type = target.object_type.clone();
+                content.object_id = target.object_id;
+                content.object_type = target.object_type;
                 return;
             }
         }
@@ -371,10 +371,10 @@ impl TargetGenerator for ScanTargetGenerator {
 
         let filter = self.filter.clone();
         let root_dir = ctx.root_dir();
-        let walker = WalkBuilder::new(&root_dir)
+        let walker = WalkBuilder::new(root_dir)
             .hidden(!self.hidden)
             .filter_entry(move |entry| {
-                let Ok(path) = entry.path().strip_prefix(&filter.root()) else {
+                let Ok(path) = entry.path().strip_prefix(filter.root()) else {
                     return false;
                 };
                 let relative_path = RelativePath::from(path);
