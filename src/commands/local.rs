@@ -12,7 +12,7 @@ use ignore::{WalkBuilder, WalkState};
 use itertools::Itertools;
 use rayon::prelude::*;
 
-use crate::filter::{Filter, MatchAllFilter};
+use crate::filter::{Filter, MatchAllFilter, PathFilter};
 use crate::progress::BuildProgressBar;
 use crate::{filesystem, Context, Object, ObjectID, ObjectType, RelativePath};
 
@@ -77,7 +77,7 @@ fn list_all_files(
 ) -> anyhow::Result<TargetEntries> {
     let (tx, rx) = crossbeam_channel::bounded::<FileEntry>(100);
 
-    let target_path_clone = target_path.clone().map(|f| f.to_path_buf());
+    let target_path_clone = target_path.map(|f| f.to_path_buf());
     let output_thread = std::thread::spawn(move || {
         let mut entries = TargetEntries::new();
         for entry in rx {
@@ -104,57 +104,59 @@ fn list_all_files(
     });
 
     let root_dir = ctx.root_dir();
-    let (target, base_depth) = match target_path {
-        Some(t) => (root_dir.join(t), t.components().count()),
-        None => (root_dir.to_path_buf(), 0),
-    };
-    let walker = WalkBuilder::new(&target)
+    let walker = WalkBuilder::new(&root_dir)
         .hidden(!hidden)
         .threads(num_cpus::get())
+        .filter_entry(filter.filter_entry())
         .build_parallel();
     walker.run(|| {
         let tx = tx.clone();
-        let filter = filter.clone();
         Box::new(move |entry| {
-            let entry = match entry {
-                Ok(entry) => entry,
-                Err(e) => {
-                    log::warn!("ignored: {}", e);
-                    return WalkState::Continue;
-                }
-            };
-
-            let depth = entry.depth() + base_depth;
-            let ft = match entry.file_type() {
-                Some(ft) => ft,
-                None => {
-                    return WalkState::Continue;
-                }
-            };
-
-            let path = entry.path().strip_prefix(root_dir).unwrap();
-            let relative_path = RelativePath::from(path);
-            if !filter.path_matches(&relative_path) {
+            // get DirEntry error
+            let Ok(entry) = entry.map_err(|e| log::warn!("ignored: {}", e)) else {
                 return WalkState::Continue;
-            }
+            };
 
+            // strip prefix error
+            let Ok(path) = entry
+                .path()
+                .strip_prefix(root_dir)
+                .map_err(|e| log::error!("strip prefix error: {}", e))
+            else {
+                return WalkState::Continue;
+            };
+            // root dir
             if path.as_os_str().is_empty() {
                 return WalkState::Continue;
             }
 
-            let entry = if ft.is_dir() {
-                FileEntry::new(ObjectType::Tree, relative_path, depth)
-            } else if ft.is_file() {
-                FileEntry::new(ObjectType::File, relative_path, depth)
-            } else {
+            // get file type error
+            let Some(ft) = entry.file_type() else {
+                return WalkState::Continue;
+            };
+
+            // not supported file type
+            if !ft.is_file() && !ft.is_dir() {
                 log::warn!(
                     "ignored: not supported file type: {} \"{}\"",
                     format_filetype(&ft),
                     path.display()
                 );
                 return WalkState::Continue;
+            }
+
+            let object_type = if ft.is_dir() {
+                ObjectType::Tree
+            } else {
+                ObjectType::File
             };
-            tx.send(entry).unwrap();
+
+            tx.send(FileEntry::new(
+                object_type,
+                RelativePath::from(path),
+                entry.depth(),
+            ))
+            .unwrap();
             WalkState::Continue
         })
     });
@@ -303,7 +305,8 @@ impl Build {
         let mut ctx = ctx;
         ctx.set_drop_cache(self.drop_cache);
 
-        let target_entries = target_entries(&ctx, None, MatchAllFilter, &self.input, self.hidden)?;
+        let filter = MatchAllFilter::new(ctx.root_dir().to_path_buf());
+        let target_entries = target_entries(&ctx, None, filter, &self.input, self.hidden)?;
         let max_depth = target_entries.max_depth;
         log::info!(
             "max_depth: {}, files: {}",
@@ -357,8 +360,9 @@ impl Update {
         let mut ctx = ctx;
         ctx.set_drop_cache(self.drop_cache);
 
-        let target_entries =
-            target_entries(&ctx, Some(&self.path), MatchAllFilter, &None, self.hidden)?;
+        let target_path = RelativePath::from(self.path.as_path());
+        let filter = PathFilter::new(ctx.root_dir().to_path_buf(), target_path);
+        let target_entries = target_entries(&ctx, Some(&self.path), filter, &None, self.hidden)?;
         let max_depth = target_entries.max_depth;
         log::info!(
             "max_depth: {}, files: {}",
@@ -495,7 +499,8 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let target_entries = target_entries(&ctx, None, MatchAllFilter, &self.input, self.hidden)?;
+        let filter = MatchAllFilter::new(ctx.root_dir().to_path_buf());
+        let target_entries = target_entries(&ctx, None, filter, &self.input, self.hidden)?;
         log::info!(
             "max_depth: {}, files: {}",
             target_entries.max_depth,

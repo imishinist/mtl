@@ -1,15 +1,41 @@
-use std::path::PathBuf;
+use ignore::DirEntry;
+use std::path::{Path, PathBuf};
 
 use crate::{RelativePath, MTL_DIR};
 
-pub trait Filter: Send + Sync + Clone {
+pub trait Filter: Send + Sync + Clone + 'static {
+    fn root(&self) -> &Path;
+
     fn path_matches(&self, path: &RelativePath) -> bool;
+
+    // skip when false
+    fn filter_entry(&self) -> impl Fn(&DirEntry) -> bool + Send + Sync + 'static {
+        let filter = self.clone();
+        let root = filter.root().to_path_buf();
+        move |entry: &DirEntry| {
+            let Ok(path) = entry.path().strip_prefix(&root) else {
+                return false;
+            };
+            let relative_path = RelativePath::from(path);
+            filter.path_matches(&relative_path)
+        }
+    }
 }
 
 #[derive(Clone)]
-pub struct MatchAllFilter;
+pub struct MatchAllFilter(PathBuf);
+
+impl MatchAllFilter {
+    pub fn new(root: PathBuf) -> Self {
+        Self(root)
+    }
+}
 
 impl Filter for MatchAllFilter {
+    fn root(&self) -> &Path {
+        &self.0
+    }
+
     fn path_matches(&self, path: &RelativePath) -> bool {
         let path = path.as_os_str().as_encoded_bytes();
         !path.starts_with(MTL_DIR.as_bytes()) && !path.starts_with(b".git")
@@ -18,19 +44,25 @@ impl Filter for MatchAllFilter {
 
 #[derive(Clone)]
 pub struct PathFilter {
+    root: PathBuf,
     target: RelativePath,
 }
 
 impl PathFilter {
     #[allow(dead_code)]
-    pub fn new(target: impl Into<RelativePath>) -> Self {
+    pub fn new(root: PathBuf, target: impl Into<RelativePath>) -> Self {
         Self {
+            root,
             target: target.into(),
         }
     }
 }
 
 impl Filter for PathFilter {
+    fn root(&self) -> &Path {
+        &self.root
+    }
+
     fn path_matches(&self, path: &RelativePath) -> bool {
         if self.target.is_root() {
             return true;
@@ -77,6 +109,7 @@ pub fn path_clean(path: &std::path::Path) -> std::path::PathBuf {
 mod tests {
     use crate::filter::{path_clean, Filter, PathFilter};
     use crate::RelativePath;
+    use std::path::PathBuf;
 
     #[test]
     fn test_filter() {
@@ -120,7 +153,8 @@ mod tests {
             },
         ];
         for test in table.iter() {
-            let filter = PathFilter::new(test.target.clone());
+            let root = PathBuf::new();
+            let filter = PathFilter::new(root, test.target.clone());
             assert_eq!(
                 filter.path_matches(&test.args),
                 test.expected,
