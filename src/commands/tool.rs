@@ -25,21 +25,22 @@ impl Hash {
         if self.input.is_empty() {
             let contents = Self::contents_from_stdin()?;
             println!("{} -", crate::hash::Hash::from_contents(contents));
-        } else {
-            for path in &self.input {
-                if path.is_dir() {
-                    println!("{} {}", " ".repeat(16), path.display());
-                    continue;
-                }
-
-                let contents = std::fs::read(path)?;
-                println!(
-                    "{} {}",
-                    crate::hash::Hash::from_contents(&contents),
-                    path.display()
-                );
-            }
+            return Ok(());
         }
+        for path in &self.input {
+            if path.is_dir() {
+                println!("{} {}", " ".repeat(16), path.display());
+                continue;
+            }
+
+            let contents = std::fs::read(path)?;
+            println!(
+                "{} {}",
+                crate::hash::Hash::from_contents(&contents),
+                path.display()
+            );
+        }
+
         Ok(())
     }
 
@@ -219,34 +220,30 @@ pub struct ReDB {
 
 impl ReDB {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let db = match ctx.packed_db {
-            None => {
-                println!("no packed db");
-                return Ok(());
-            }
-            Some(db) => db,
+        let Some(db) = ctx.packed_db else {
+            println!("no packed db");
+            return Ok(());
         };
-        let read_txn = db.begin_read()?;
 
-        if let Some(object_id) = &self.key {
-            let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
-            match table.get(object_id)? {
-                Some(val) => {
-                    let content = val.value();
-                    let s = String::from_utf8_lossy(&content);
-                    println!("{}", s);
-                }
-                None => {
-                    println!("not found");
-                }
-            };
-        } else {
+        let read_txn = db.begin_read()?;
+        let Some(object_id) = &self.key else {
             let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
             for range in table.iter()? {
                 let (object_id, _) = range?;
                 println!("{}", object_id.value());
             }
-        }
+            return Ok(());
+        };
+
+        let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
+        match table.get(object_id)? {
+            Some(val) => {
+                let content = val.value();
+                let s = String::from_utf8_lossy(&content);
+                println!("{}", s);
+            }
+            None => println!("not found"),
+        };
         Ok(())
     }
 }

@@ -310,52 +310,11 @@ impl FromStr for ObjectExpr {
 }
 
 impl ObjectExpr {
-    pub fn resolve_with_routes(&self, ctx: &Context) -> Result<Vec<ObjectID>, ReadContentError> {
-        match &self.path {
-            Some(path) => {
-                let components = path.components();
-                Ok(self.inner_resolve(ctx, &self.object_ref, components)?)
-            }
-            None => Ok(vec![ctx.deref_object_ref(&self.object_ref)?]),
-        }
-    }
-
     pub fn resolve(&self, ctx: &Context) -> Result<ObjectID, ReadContentError> {
         match &self.path {
             Some(path) => ctx.search_object(&self.object_ref, path),
             None => Ok(ctx.deref_object_ref(&self.object_ref)?),
         }
-    }
-
-    fn inner_resolve(
-        &self,
-        ctx: &Context,
-        object_ref: &ObjectRef,
-        mut components: Components,
-    ) -> Result<Vec<ObjectID>, ReadContentError> {
-        let file_path = components.next();
-        if file_path.is_none() {
-            // let object_id = ctx.deref_object_ref(object_ref)?;
-            return Ok(vec![]);
-        }
-        let file_path = file_path.unwrap();
-
-        let object = ctx.deref_object_ref(&object_ref)?;
-        let contents = ctx.read_tree_contents(&object)?;
-        for content in contents {
-            match content.file_path.file_name() {
-                None => {}
-                Some(file_name) => {
-                    if file_name.as_os_str() == file_path.as_os_str() {
-                        let object_ref = ObjectRef::new_id(content.object_id);
-                        let mut results = self.inner_resolve(ctx, &object_ref, components)?;
-                        results.push(content.object_id);
-                        return Ok(results);
-                    }
-                }
-            }
-        }
-        Ok(vec![])
     }
 }
 
@@ -438,11 +397,6 @@ impl fmt::Display for Object {
     }
 }
 
-pub enum ObjectLocation {
-    Packed(ObjectID),
-    Fs(PathBuf),
-}
-
 const MTL_DIR: &str = ".mtl";
 pub(crate) const PACKED_OBJECTS_TABLE: TableDefinition<ObjectID, Vec<u8>> =
     TableDefinition::new("packed-objects");
@@ -515,18 +469,17 @@ impl Context {
             return Ok(contents);
         }
 
-        if let Some(packed_db) = &self.packed_db {
-            let read_txn = packed_db.begin_read()?;
+        let Some(packed_db) = &self.packed_db else {
+            return Err(ReadContentError::ObjectNotFound);
+        };
 
-            let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
-            let ret = match table.get(object_id)? {
-                Some(val) => Ok(val.value()),
-                None => Err(ReadContentError::ObjectNotFound),
-            };
-            ret
-        } else {
-            Err(ReadContentError::ObjectNotFound)
-        }
+        let read_txn = packed_db.begin_read()?;
+        let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
+        let ret = match table.get(object_id)? {
+            Some(v) => Ok(v.value()),
+            None => Err(ReadContentError::ObjectNotFound),
+        };
+        ret
     }
 
     pub fn object_files(&self) -> anyhow::Result<Vec<PathBuf>, ReadContentError> {
@@ -653,26 +606,22 @@ impl Context {
         object_ref: &ObjectRef,
         mut components: Components,
     ) -> Result<Vec<ObjectID>, ReadContentError> {
-        let file_path = components.next();
-        if file_path.is_none() {
+        let Some(file_path) = components.next() else {
             return Ok(vec![]);
-        }
-        let file_path = file_path.unwrap();
+        };
 
         let object = self.deref_object_ref(&object_ref)?;
         let contents = self.read_tree_contents(&object)?;
         for content in contents {
-            match content.file_path.file_name() {
-                None => {}
-                Some(file_name) => {
-                    if file_name.as_os_str() == file_path.as_os_str() {
-                        let object_ref = ObjectRef::new_id(content.object_id);
-                        let mut results =
-                            self.inner_search_object_with_routes(&object_ref, components)?;
-                        results.push(content.object_id);
-                        return Ok(results);
-                    }
-                }
+            let Some(file_name) = content.file_path.file_name() else {
+                continue;
+            };
+
+            if file_name.as_os_str() == file_path.as_os_str() {
+                let object_ref = ObjectRef::new_id(content.object_id);
+                let mut results = self.inner_search_object_with_routes(&object_ref, components)?;
+                results.push(content.object_id);
+                return Ok(results);
             }
         }
         Err(ReadContentError::ObjectNotFound)
