@@ -7,17 +7,16 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::{fs, io};
 
-use anyhow::anyhow;
 use ignore::{WalkBuilder, WalkState};
 use itertools::Itertools;
 use rayon::prelude::*;
 
 use crate::filter::Filter;
 use crate::progress::BuildProgressBar;
-use crate::{filesystem, Context, Object, ObjectID, ObjectType, RelativePath};
+use crate::{filesystem, Context, Object, ObjectID, ObjectType, ReadContentError, RelativePath};
 
 pub trait TargetGenerator {
-    fn generate(&self, ctx: &Context) -> anyhow::Result<TargetEntries>;
+    fn generate(&self, ctx: &Context) -> anyhow::Result<TargetEntries, ReadContentError>;
 }
 
 pub struct Builder {
@@ -33,17 +32,18 @@ impl Builder {
         }
     }
 
-    pub fn build(&self, ctx: &Context) -> anyhow::Result<Object> {
+    pub fn build(&self, ctx: &Context) -> anyhow::Result<Object, ReadContentError> {
         let target_entries = self.generator.generate(ctx)?;
+        if target_entries.max_depth == 0 {
+            return Err(ReadContentError::TargetEmpty);
+        }
+
         let pb = BuildProgressBar::new(
             target_entries.num_files,
             target_entries.num_dirs,
             self.progress,
         );
-
-        let object =
-            process_target_entries(ctx, &pb, target_entries.files, target_entries.max_depth)?;
-        Ok(object)
+        Ok(process_target_entries(ctx, &pb, target_entries)?)
     }
 
     pub fn update<P: AsRef<Path>>(&self, ctx: &Context, path: P) -> anyhow::Result<Object> {
@@ -214,10 +214,11 @@ fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> 
 fn process_target_entries(
     ctx: &Context,
     pb: &BuildProgressBar,
-    files: Vec<FileEntry>,
-    max_depth: usize,
+    target_entries: TargetEntries,
 ) -> io::Result<Object> {
-    let (files, mut dirs) = files
+    let max_depth = target_entries.max_depth;
+    let (files, mut dirs) = target_entries
+        .files
         .into_iter()
         .partition::<Vec<_>, _>(|entry| matches!(entry.mode, ObjectType::File));
 
@@ -316,7 +317,6 @@ fn windows_format_filetype(mode: &fs::FileType) -> &'static str {
 }
 
 pub struct ScanTargetGenerator {
-    target_path: Option<PathBuf>,
     filter: Arc<Box<dyn Filter>>,
     hidden: bool,
 }
@@ -324,15 +324,6 @@ pub struct ScanTargetGenerator {
 impl ScanTargetGenerator {
     pub fn new(filter: Box<dyn Filter>, hidden: bool) -> Self {
         Self {
-            target_path: None,
-            filter: Arc::new(filter),
-            hidden,
-        }
-    }
-
-    pub fn new_target(target: PathBuf, filter: Box<dyn Filter>, hidden: bool) -> Self {
-        Self {
-            target_path: Some(target),
             filter: Arc::new(filter),
             hidden,
         }
@@ -340,32 +331,15 @@ impl ScanTargetGenerator {
 }
 
 impl TargetGenerator for ScanTargetGenerator {
-    fn generate(&self, ctx: &Context) -> anyhow::Result<TargetEntries> {
+    fn generate(&self, ctx: &Context) -> anyhow::Result<TargetEntries, ReadContentError> {
         let (tx, rx) = crossbeam_channel::bounded::<FileEntry>(100);
 
-        let target_path_clone = self.target_path.as_ref().map(|f| f.to_path_buf());
         let output_thread = std::thread::spawn(move || {
             let mut entries = TargetEntries::new();
+            entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0));
             for entry in rx {
                 entries.push_file_entry(entry);
             }
-
-            if let Some(target_path) = target_path_clone {
-                let mut depth = 0;
-                let mut tmp_path = PathBuf::new();
-                for component in target_path.components() {
-                    tmp_path.push(component);
-
-                    depth += 1;
-                    entries.push_file_entry(FileEntry::new(
-                        ObjectType::Tree,
-                        RelativePath::Path(tmp_path.clone()),
-                        depth,
-                    ));
-                }
-            }
-
-            entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0));
             entries
         });
 
@@ -445,13 +419,13 @@ pub struct FileTargetGenerator {
 }
 
 impl FileTargetGenerator {
-    pub fn new(filter: Box<dyn Filter>, input: OsString) -> io::Result<Self> {
-        Ok(Self { filter, input })
+    pub fn new(filter: Box<dyn Filter>, input: OsString) -> Self {
+        Self { filter, input }
     }
 }
 
 impl TargetGenerator for FileTargetGenerator {
-    fn generate(&self, _ctx: &Context) -> anyhow::Result<TargetEntries> {
+    fn generate(&self, _ctx: &Context) -> anyhow::Result<TargetEntries, ReadContentError> {
         let input: BufReaderWrapper<Box<dyn BufRead>> = if self.input.eq("-") {
             let stdin = io::stdin().lock();
             let reader = io::BufReader::new(stdin);
@@ -472,7 +446,7 @@ impl TargetGenerator for FileTargetGenerator {
 
             let relative_path = PathBuf::from(relative_path);
             if relative_path.is_absolute() {
-                return Err(anyhow!("absolute path is not supported"));
+                return Err(ReadContentError::AbsolutePathNotSupported);
             }
 
             let relative_path = RelativePath::from(relative_path);

@@ -8,6 +8,12 @@ pub enum ReadContentError {
     #[error("object not found")]
     ObjectNotFound,
 
+    #[error("target entry is empty")]
+    TargetEmpty,
+
+    #[error("absolute path is not supported")]
+    AbsolutePathNotSupported,
+
     #[error(transparent)]
     IOError(#[from] io::Error),
 

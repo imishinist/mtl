@@ -5,7 +5,7 @@ use clap::Args;
 
 use crate::builder::{Builder, FileTargetGenerator, ScanTargetGenerator, TargetGenerator};
 use crate::filter::{Filter, MatchAllFilter, PathFilter};
-use crate::{Context, RelativePath};
+use crate::Context;
 
 #[derive(Args, Debug)]
 pub struct Build {
@@ -37,12 +37,8 @@ impl Build {
         let mut ctx = ctx;
         ctx.set_drop_cache(self.drop_cache);
 
-        let filter: Box<dyn Filter> = Box::new(MatchAllFilter::new(ctx.root_dir().to_path_buf()));
-        let generator: Box<dyn TargetGenerator> = match &self.input {
-            Some(input) => Box::new(FileTargetGenerator::new(filter, input.clone())?),
-            None => Box::new(ScanTargetGenerator::new(filter, self.hidden)),
-        };
-
+        let root_dir = ctx.root_dir().to_path_buf();
+        let generator = get_generator(root_dir, None, self.input.as_ref(), self.hidden);
         let builder = Builder::new(generator, self.progress);
         let object = builder.build(&ctx)?;
         match self.no_write_head {
@@ -82,15 +78,8 @@ impl Update {
         let mut ctx = ctx;
         ctx.set_drop_cache(self.drop_cache);
 
-        let target_path = RelativePath::from(self.path.as_path());
-        let filter: Box<dyn Filter> =
-            Box::new(PathFilter::new(ctx.root_dir().to_path_buf(), target_path));
-        let generator: Box<dyn TargetGenerator> = Box::new(ScanTargetGenerator::new_target(
-            self.path.clone(),
-            filter,
-            self.hidden,
-        ));
-
+        let root_dir = ctx.root_dir().to_path_buf();
+        let generator = get_generator(root_dir, Some(&self.path), None, self.hidden);
         let builder = Builder::new(generator, self.progress);
         let root = builder.update(&ctx, &self.path)?;
         match self.no_write_head {
@@ -116,15 +105,19 @@ pub struct List {
     /// If true, scan hidden files.
     #[clap(long, default_value_t = false, verbatim_doc_comment)]
     hidden: bool,
+
+    path: Option<PathBuf>,
 }
 
 impl List {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let filter: Box<dyn Filter> = Box::new(MatchAllFilter::new(ctx.root_dir().to_path_buf()));
-        let generator: Box<dyn TargetGenerator> = match &self.input {
-            Some(input) => Box::new(FileTargetGenerator::new(filter, input.clone())?),
-            None => Box::new(ScanTargetGenerator::new(filter, self.hidden)),
-        };
+        let root_dir = ctx.root_dir().to_path_buf();
+        let generator = get_generator(
+            root_dir,
+            self.path.as_ref(),
+            self.input.as_ref(),
+            self.hidden,
+        );
         let target_entries = generator.generate(&ctx)?;
         for file in target_entries.iter() {
             if file.path.is_root() {
@@ -134,5 +127,21 @@ impl List {
             println!("{} {}", file.mode, file.path);
         }
         Ok(())
+    }
+}
+
+fn get_generator(
+    root_dir: PathBuf,
+    path: Option<&PathBuf>,
+    input: Option<&OsString>,
+    hidden: bool,
+) -> Box<dyn TargetGenerator> {
+    let filter: Box<dyn Filter> = match path {
+        Some(path) => Box::new(PathFilter::new(root_dir, path)),
+        None => Box::new(MatchAllFilter::new(root_dir)),
+    };
+    match input {
+        Some(input) => Box::new(FileTargetGenerator::new(filter, input.to_os_string())),
+        None => Box::new(ScanTargetGenerator::new(filter, hidden)),
     }
 }
