@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+mod parallel;
+
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{BufRead, Read};
@@ -8,12 +9,10 @@ use std::sync::Arc;
 use std::{fs, io};
 
 use ignore::{WalkBuilder, WalkState};
-use itertools::Itertools;
-use rayon::prelude::*;
 
 use crate::filter::Filter;
 use crate::progress::BuildProgressBar;
-use crate::{filesystem, Context, Object, ObjectID, ObjectType, ReadContentError, RelativePath};
+use crate::{Context, Object, ObjectType, ReadContentError, RelativePath};
 
 pub trait TargetGenerator {
     fn generate(&self, ctx: &Context) -> anyhow::Result<TargetEntries, ReadContentError>;
@@ -43,7 +42,7 @@ impl Builder {
             target_entries.num_dirs,
             self.progress,
         );
-        Ok(process_target_entries(ctx, &pb, target_entries)?)
+        Ok(parallel::build(ctx, &pb, target_entries)?)
     }
 
     pub fn update<P: AsRef<Path>>(&self, ctx: &Context, path: P) -> anyhow::Result<Object> {
@@ -158,117 +157,6 @@ impl TargetEntries {
     pub fn iter(&self) -> impl Iterator<Item = &FileEntry> {
         self.files.iter()
     }
-}
-
-fn merge_hashmap<K: std::hash::Hash + Eq + Clone, V: Clone>(
-    map1: HashMap<K, Vec<V>>,
-    map2: HashMap<K, Vec<V>>,
-) -> HashMap<K, Vec<V>> {
-    map2.into_iter().fold(map1, |mut acc, (k, vs)| {
-        acc.entry(k).or_default().extend(vs);
-        acc
-    })
-}
-
-fn process_tree_content(
-    ctx: &Context,
-    map: &HashMap<RelativePath, Vec<Object>>,
-    entry: &FileEntry,
-) -> io::Result<Option<Object>> {
-    let objects = match map.get(&entry.path) {
-        Some(objects) => objects.iter().sorted().collect::<Vec<_>>(),
-        None => return Ok(None), // empty dir
-    };
-
-    match &entry.path {
-        RelativePath::Path(path) => {
-            let object_id = ctx.write_tree_contents(&objects)?;
-            Ok(Some(Object::new_tree(object_id, path)))
-        }
-        RelativePath::Root => {
-            let object_id = ctx.write_tree_contents(&objects)?;
-            Ok(Some(Object::new_tree(object_id, PathBuf::from(""))))
-        }
-    }
-}
-
-fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> {
-    let path = ctx.root_dir().join(entry.path.as_path());
-
-    let mut file = File::open(path)?;
-    let mut contents = Vec::new();
-    file.read_to_end(&mut contents)?;
-    if ctx.drop_cache {
-        filesystem::fadvise(&file, filesystem::Advise::DontNeed, None, None)?;
-    }
-
-    let object_id = ObjectID::from_contents(&contents);
-    let file_name = entry.path.file_name().ok_or(io::Error::new(
-        io::ErrorKind::NotFound,
-        "failed to get file_name",
-    ))?;
-
-    Ok(Object::new_file(object_id, file_name))
-}
-
-fn process_target_entries(
-    ctx: &Context,
-    pb: &BuildProgressBar,
-    target_entries: TargetEntries,
-) -> io::Result<Object> {
-    let max_depth = target_entries.max_depth;
-    let (files, mut dirs) = target_entries
-        .files
-        .into_iter()
-        .partition::<Vec<_>, _>(|entry| matches!(entry.mode, ObjectType::File));
-
-    let mut objects_per_dir = files
-        .into_par_iter()
-        .fold(
-            HashMap::new,
-            |mut acc: HashMap<RelativePath, Vec<_>>, entry| {
-                let parent = entry.path.parent();
-                let object =
-                    process_file_content(ctx, &entry).expect("failed to process file content");
-                acc.entry(parent).or_default().push(object);
-                pb.inc_file(1);
-                acc
-            },
-        )
-        .reduce(HashMap::new, merge_hashmap);
-
-    for i in (1..max_depth).rev() {
-        let (target, rest) = dirs
-            .into_iter()
-            .partition::<Vec<_>, _>(|entry| entry.depth == i);
-        dirs = rest;
-
-        let tmp = target
-            .into_par_iter()
-            .fold(
-                HashMap::new,
-                |mut acc: HashMap<RelativePath, Vec<_>>, entry| {
-                    let parent = entry.path.parent();
-                    if let Some(object) =
-                        process_tree_content(ctx, &objects_per_dir, &entry).unwrap()
-                    {
-                        acc.entry(parent).or_default().push(object);
-                    }
-                    pb.inc_dir(1);
-
-                    acc
-                },
-            )
-            .reduce(HashMap::new, merge_hashmap);
-        objects_per_dir = merge_hashmap(objects_per_dir, tmp);
-    }
-
-    let root = RelativePath::Root;
-    let mut objects = objects_per_dir.remove(&root).unwrap();
-    objects.par_sort_unstable();
-
-    let object_id = ctx.write_tree_contents(&objects)?;
-    Ok(Object::new_tree(object_id, PathBuf::from("")))
 }
 
 fn format_filetype(mode: &fs::FileType) -> &'static str {
