@@ -6,6 +6,8 @@ Tools for recursively computing and indexing directory hashes.
 
 It is based on git's tree object structure.
 
+![Demo](assets/demo.gif)
+
 ## How to use
 
 build index
