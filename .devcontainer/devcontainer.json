@@ -1,0 +1,13 @@
+{
+  "name": "mtl",
+  "image": "mcr.microsoft.com/vscode/devcontainers/rust:1-bookworm",
+  "features": {
+    "ghcr.io/devcontainers-contrib/features/fish-apt-get:1":{},
+    "ghcr.io/devcontainers-contrib/features/hyperfine:1":{},
+    "ghcr.io/devcontainers-contrib/features/apt-get-packages:1": {
+      "packages": ["xxd"]
+    }
+  },
+  "onCreateCommand": "sh -c 'cargo install cargo-make'",
+  "updateContentCommand": "sh -c 'cargo build'"
+}
