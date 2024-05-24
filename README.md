@@ -1,6 +1,7 @@
 # mtl
 
 [![Rust](https://github.com/imishinist/mtl/actions/workflows/rust.yml/badge.svg)](https://github.com/imishinist/mtl/actions/workflows/rust.yml)
+[![Codespaces Prebuilds](https://github.com/imishinist/mtl/actions/workflows/codespaces/create_codespaces_prebuilds/badge.svg?branch=main)](https://github.com/imishinist/mtl/actions/workflows/codespaces/create_codespaces_prebuilds)
 
 Tools for recursively computing and indexing directory hashes.
 
