@@ -6,31 +6,31 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = { version = "1.0.77" }
+anyhow = { version = "1.0.95" }
 byteorder = { version = "1.5.0" }
-clap = { version = "4.4.12", features = ["derive"] }
-clap_complete = { version = "4.5.1" }
-console = { version = "0.15.7" }
-crossbeam-channel = { version = "0.5.10" }
-env_logger = { version = "0.10.1" }
-ignore = { version = "0.4.21" }
-indicatif = { version = "0.17.7", features = ["rayon"] }
-itertools = { version = "0.12.0" }
-libc = { version = "0.2.151" }
-log = { version = "0.4.20" }
+clap = { version = "4.5.27", features = ["derive"] }
+clap_complete = { version = "4.5.44" }
+console = { version = "0.15.10" }
+crossbeam-channel = { version = "0.5.14" }
+env_logger = { version = "0.11.6" }
+ignore = { version = "0.4.23" }
+indicatif = { version = "0.17.11", features = ["rayon"] }
+itertools = { version = "0.14.0" }
+libc = { version = "0.2.169" }
+log = { version = "0.4.25" }
 memmap = { version = "0.7.0" }
 num_cpus = { version = "1.16.0" }
 page_size = { version = "0.6.0" }
-rand = { version = "0.8.5" }
-rand_distr = { version = "0.4.3" }
-rayon = { version = "1.8.0" }
-redb = { version = "1.4.0" }
+rand = { version = "0.9.0" }
+rand_distr = { version = "0.5.0" }
+rayon = { version = "1.10.0" }
+redb = { version = "1.5.1" }
 scopeguard = { version = "1.2.0" }
-similar = { version = "2.3.0" }
-thiserror = { version = "1.0.52" }
-tikv-jemallocator = { version = "0.5.4", optional = true }
-tokio = { version = "1.35.1", features = ["rt-multi-thread", "fs", "macros"] }
-xxhash-rust = { version = "0.8.8", features = ["xxh64", "xxh3"] }
+similar = { version = "2.7.0" }
+thiserror = { version = "2.0.11" }
+tikv-jemallocator = { version = "0.6.0", optional = true }
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "fs", "macros"] }
+xxhash-rust = { version = "0.8.15", features = ["xxh64", "xxh3"] }
 
 [dev-dependencies]
 criterion = { version = "0.5.1" }

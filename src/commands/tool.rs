@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use clap::Args;
 use indicatif::ProgressBar;
-use rand::prelude::{thread_rng, Distribution};
+use rand::prelude::Distribution;
 use rand_distr::Normal;
 use rayon::prelude::*;
 use redb::ReadableTable;
@@ -117,7 +117,7 @@ impl Generate {
     }
 
     fn generate_bytes(normal: &mut Normal<f64>) -> Vec<u8> {
-        let need_bytes = normal.sample(&mut thread_rng()) as usize;
+        let need_bytes = normal.sample(&mut rand::rng()) as usize;
         (0..need_bytes)
             .map(|_| rand::random::<u8>())
             .collect::<Vec<_>>()
