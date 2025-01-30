@@ -12,6 +12,7 @@ use std::borrow::Borrow;
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
@@ -291,22 +292,25 @@ impl FromStr for ObjectExpr {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let tmp = s.splitn(2, ':');
-        let tmp = tmp.collect::<Vec<&str>>();
-        if tmp.len() == 1 {
-            return Ok(Self {
-                object_ref: ObjectRef::from_str(tmp[0])?,
-                path: None,
-            });
-        }
-        if tmp.len() != 2 {
-            return Err("format invalid".to_string());
-        }
+        let mut it = s.splitn(2, ':');
+
+        let r#ref = it.next().ok_or("format invalid".to_string())?;
+        // set None if path is empty
+        let path = it.next().filter(|p| !p.is_empty()).map(PathBuf::from);
 
         Ok(Self {
-            object_ref: ObjectRef::from_str(tmp[0])?,
-            path: Some(PathBuf::from(tmp[1])),
+            object_ref: ObjectRef::from_str(r#ref)?,
+            path,
         })
+    }
+}
+
+impl fmt::Display for ObjectExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match &self.path {
+            Some(path) => write!(f, "{}:{}", self.object_ref, path.display()),
+            None => write!(f, "{}", self.object_ref),
+        }
     }
 }
 
@@ -414,12 +418,10 @@ impl Context {
         let root_dir = root_dir.into();
         let packed_db_file = root_dir.join(MTL_DIR).join("pack").join("packed.redb");
 
-        let packed_db = if packed_db_file.exists() {
-            Some(redb::Database::open(&packed_db_file)?)
-        } else {
-            None
-        };
-
+        let packed_db = packed_db_file
+            .exists()
+            .then(|| redb::Database::open(&packed_db_file))
+            .transpose()?;
         Ok(Context {
             root_dir,
             packed_db,
@@ -477,11 +479,10 @@ impl Context {
     }
 
     pub fn object_files(&self) -> anyhow::Result<Vec<PathBuf>, ReadContentError> {
-        let dir_name = self.root_dir.as_path();
-        let object_dir = dir_name.join(MTL_DIR).join("objects");
+        let entries = fs::read_dir(self.objects_dir())?;
 
         let mut object_files = Vec::new();
-        for entry in fs::read_dir(object_dir)? {
+        for entry in entries {
             let entry = entry?;
             let path = entry.path();
 
@@ -514,12 +515,12 @@ impl Context {
         for entry in self.object_files()? {
             let dir_name = entry
                 .parent()
-                .and_then(|f| f.file_name())
-                .and_then(|f| f.to_str())
+                .and_then(Path::file_name)
+                .and_then(OsStr::to_str)
                 .ok_or(ParseError::EmptyToken)?;
             let file_name = entry
                 .file_name()
-                .and_then(|f| f.to_str())
+                .and_then(OsStr::to_str)
                 .ok_or(ParseError::EmptyToken)?;
 
             let mut buf = String::with_capacity(dir_name.len() + file_name.len());
@@ -554,7 +555,7 @@ impl Context {
         self.root_dir.as_path().join(MTL_DIR).join("refs")
     }
 
-    pub fn reference_file(&self, reference: &str) -> PathBuf {
+    pub fn reference_file<P: AsRef<Path>>(&self, reference: P) -> PathBuf {
         self.reference_dir().join(reference)
     }
 
@@ -572,12 +573,12 @@ impl Context {
         }
     }
 
-    pub fn search_object(
+    pub fn search_object<P: AsRef<Path>>(
         &self,
         base: &ObjectRef,
-        path: &Path,
+        path: P,
     ) -> Result<ObjectID, ReadContentError> {
-        let components = path.components();
+        let components = path.as_ref().components();
         let routes = self.inner_search_object_with_routes(base, components)?;
         if routes.is_empty() {
             return Err(ReadContentError::ObjectNotFound);
@@ -585,12 +586,12 @@ impl Context {
         Ok(routes[0])
     }
 
-    pub fn search_object_with_routes(
+    pub fn search_object_with_routes<P: AsRef<Path>>(
         &self,
         base: &ObjectRef,
-        path: &Path,
+        path: P,
     ) -> Result<Vec<ObjectID>, ReadContentError> {
-        let components = path.components();
+        let components = path.as_ref().components();
         self.inner_search_object_with_routes(base, components)
     }
 
@@ -758,19 +759,22 @@ mod tests {
         assert_eq!(path.parent(), RelativePath::Path(PathBuf::from("foo")));
 
         assert_eq!(path.parent().parent().is_root(), true);
+
+        assert_eq!(RelativePath::Root.deref(), Path::new(""));
+        assert_eq!(path.deref(), Path::new("foo/bar"));
+
+        assert_eq!(format!("{}", RelativePath::Root), "");
+        assert_eq!(format!("{}", path), "foo/bar");
     }
 
     #[test]
     fn test_object_type_from_str() {
+        assert_eq!(ObjectType::Tree.to_string(), "tree");
+        assert_eq!(ObjectType::File.to_string(), "file");
+
         assert_eq!("tree".parse::<ObjectType>().unwrap(), ObjectType::Tree);
         assert_eq!("file".parse::<ObjectType>().unwrap(), ObjectType::File);
         assert!("foo".parse::<ObjectType>().is_err());
-    }
-
-    #[test]
-    fn test_object_type_display() {
-        assert_eq!(format!("{}", ObjectType::Tree), "tree");
-        assert_eq!(format!("{}", ObjectType::File), "file");
     }
 
     #[test]
@@ -783,6 +787,11 @@ mod tests {
         assert_eq!(
             ObjectID::from_contents("hello world"),
             ObjectID::from_hex("d447b1ea40e6988b").unwrap()
+        );
+
+        assert_eq!(
+            ObjectID::from_hex("d447b1ea40e6988b").unwrap().to_string(),
+            "d447b1ea40e6988b".to_string()
         );
     }
 
@@ -866,5 +875,31 @@ mod tests {
             PathBuf::from("foo/bar/baz"),
         );
         assert_eq!(format!("{}", object), "file\td447b1ea40e6988b\tbaz");
+    }
+
+    #[test]
+    fn test_object_expr() {
+        let object_expr = "d447b1ea40e6988b:foo/bar/baz"
+            .parse::<ObjectExpr>()
+            .unwrap();
+        assert_eq!(
+            object_expr.object_ref,
+            ObjectRef::new_id(ObjectID::from_hex("d447b1ea40e6988b").unwrap())
+        );
+        assert_eq!(object_expr.path, Some(PathBuf::from("foo/bar/baz")));
+
+        let object_expr = "d447b1ea40e6988b".parse::<ObjectExpr>().unwrap();
+        assert_eq!(
+            object_expr.object_ref,
+            ObjectRef::new_id(ObjectID::from_hex("d447b1ea40e6988b").unwrap())
+        );
+        assert_eq!(object_expr.path, None);
+
+        let object_expr = "d447b1ea40e6988b:".parse::<ObjectExpr>().unwrap();
+        assert_eq!(
+            object_expr.object_ref,
+            ObjectRef::new_id(ObjectID::from_hex("d447b1ea40e6988b").unwrap())
+        );
+        assert_eq!(object_expr.path, None);
     }
 }

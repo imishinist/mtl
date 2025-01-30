@@ -3,7 +3,6 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::Path;
 
-
 #[cfg(any(unix, target_os = "redox"))]
 pub fn osstr_to_bytes(input: &OsStr) -> Cow<[u8]> {
     use std::os::unix::ffi::OsStrExt;
