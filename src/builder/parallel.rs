@@ -8,7 +8,7 @@ use rayon::prelude::*;
 
 use crate::builder::{FileEntry, TargetEntries};
 use crate::progress::BuildProgressBar;
-use crate::{filesystem, Context, Object, ObjectID, ObjectType, RelativePath};
+use crate::{Context, Object, ObjectID, ObjectType, RelativePath};
 
 pub(crate) fn build(
     ctx: &Context,
@@ -108,9 +108,6 @@ fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> 
     let mut file = File::open(path)?;
     let mut contents = Vec::new();
     file.read_to_end(&mut contents)?;
-    if ctx.drop_cache {
-        filesystem::fadvise(&file, filesystem::Advise::DontNeed, None, None)?;
-    }
 
     let object_id = ObjectID::from_contents(&contents);
     let file_name = entry.path.file_name().ok_or(io::Error::new(

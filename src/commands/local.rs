@@ -26,16 +26,11 @@ pub struct Build {
     /// If true, show progress bar.
     #[clap(long, default_value_t = false, verbatim_doc_comment)]
     progress: bool,
-
-    /// If true, drop cache after reading files.
-    #[clap(long, default_value_t = false, verbatim_doc_comment)]
-    drop_cache: bool,
 }
 
 impl Build {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let mut ctx = ctx;
-        ctx.set_drop_cache(self.drop_cache);
+        let ctx = ctx;
 
         let root_dir = ctx.root_dir().to_path_buf();
         let generator = get_generator(root_dir, None, self.input.as_ref(), self.hidden);
@@ -66,17 +61,12 @@ pub struct Update {
     #[clap(long, default_value_t = false, verbatim_doc_comment)]
     progress: bool,
 
-    /// If true, drop cache after reading files.
-    #[clap(long, default_value_t = false, verbatim_doc_comment)]
-    drop_cache: bool,
-
     path: PathBuf,
 }
 
 impl Update {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let mut ctx = ctx;
-        ctx.set_drop_cache(self.drop_cache);
+        let ctx = ctx;
 
         let root_dir = ctx.root_dir().to_path_buf();
         let generator = get_generator(root_dir, Some(&self.path), None, self.hidden);

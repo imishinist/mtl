@@ -406,8 +406,6 @@ pub struct Context {
     // root of the repository
     root_dir: PathBuf,
 
-    drop_cache: bool,
-
     packed_db: Option<redb::Database>,
 }
 
@@ -424,13 +422,8 @@ impl Context {
 
         Ok(Context {
             root_dir,
-            drop_cache: false,
             packed_db,
         })
-    }
-
-    pub fn set_drop_cache(&mut self, drop_cache: bool) {
-        self.drop_cache = drop_cache;
     }
 
     #[inline]

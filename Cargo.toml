@@ -18,9 +18,7 @@ indicatif = { version = "0.17.11", features = ["rayon"] }
 itertools = { version = "0.14.0" }
 libc = { version = "0.2.169" }
 log = { version = "0.4.25" }
-memmap = { version = "0.7.0" }
 num_cpus = { version = "1.16.0" }
-page_size = { version = "0.6.0" }
 rand = { version = "0.9.0" }
 rand_distr = { version = "0.5.0" }
 rayon = { version = "1.10.0" }
