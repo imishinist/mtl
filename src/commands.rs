@@ -24,9 +24,6 @@ pub enum LocalCommand {
     /// Build a tree of objects
     Build(local::Build),
 
-    /// Update a tree of specified path
-    Update(local::Update),
-
     /// List target files
     List(local::List),
 }
@@ -35,7 +32,6 @@ impl LocalCommand {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         match self {
             LocalCommand::Build(cmd) => cmd.run(ctx),
-            LocalCommand::Update(cmd) => cmd.run(ctx),
             LocalCommand::List(cmd) => cmd.run(ctx),
         }
     }

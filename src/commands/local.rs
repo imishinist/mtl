@@ -48,43 +48,6 @@ impl Build {
 }
 
 #[derive(Args, Debug)]
-pub struct Update {
-    /// If true, don't write the object ID of the root tree to HEAD.
-    #[clap(short, long, default_value_t = false, verbatim_doc_comment)]
-    no_write_head: bool,
-
-    /// If true, scan hidden files.
-    #[clap(long, default_value_t = false, verbatim_doc_comment)]
-    hidden: bool,
-
-    /// If true, show progress bar.
-    #[clap(long, default_value_t = false, verbatim_doc_comment)]
-    progress: bool,
-
-    path: PathBuf,
-}
-
-impl Update {
-    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let ctx = ctx;
-
-        let root_dir = ctx.root_dir().to_path_buf();
-        let generator = get_generator(root_dir, Some(&self.path), None, self.hidden);
-        let builder = Builder::new(generator, self.progress);
-        let root = builder.update(&ctx, &self.path)?;
-        match self.no_write_head {
-            true => println!("HEAD: {}", root.object_id),
-            false => {
-                ctx.write_head(&root.object_id)?;
-                println!("Written HEAD: {}", root.object_id);
-            }
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Args, Debug)]
 pub struct List {
     /// The input file containing a list of files to be scanned.
     /// By default, it scans all files in the current directory.

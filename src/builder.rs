@@ -1,9 +1,9 @@
 mod parallel;
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, Read};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::{fs, io};
@@ -43,62 +43,6 @@ impl Builder {
             self.progress,
         );
         Ok(parallel::build(ctx, &pb, target_entries)?)
-    }
-
-    pub fn update<P: AsRef<Path>>(&self, ctx: &Context, path: P) -> anyhow::Result<Object> {
-        let path = path.as_ref();
-        let updated_object = self.build(ctx)?;
-        let updated_root_id = ctx.search_object(&updated_object.as_object_ref(), path)?;
-
-        let head = "HEAD".into();
-        let mut object_ids = ctx.search_object_with_routes(&head, path)?;
-        object_ids.push(ctx.read_head()?);
-        let (object_id, object_ids) = object_ids.split_first().unwrap();
-        if *object_id == updated_root_id {
-            log::info!("nothing to update");
-            return Ok(updated_object);
-        }
-
-        let mut path_list = vec![PathBuf::new()];
-        let mut tmp_path = PathBuf::new();
-        for component in path.components() {
-            tmp_path.push(component);
-            path_list.push(tmp_path.clone());
-        }
-
-        let mut now = Object::new(
-            ObjectType::Tree,
-            updated_root_id,
-            path_list.pop().unwrap().file_name().unwrap(),
-        );
-        for object_id in object_ids {
-            let mut contents = ctx.read_tree_contents(object_id)?;
-            Self::update_tree_content(&mut contents, now);
-
-            now = Object::new(
-                ObjectType::Tree,
-                ctx.write_tree_contents(&contents)?,
-                path_list
-                    .pop()
-                    .unwrap()
-                    .file_name()
-                    .unwrap_or(OsStr::new("")),
-            );
-        }
-
-        Ok(now)
-    }
-
-    fn update_tree_content(contents: &mut Vec<Object>, target: Object) {
-        for content in contents.iter_mut() {
-            if content.file_path == target.file_path {
-                content.object_id = target.object_id;
-                content.object_type = target.object_type;
-                return;
-            }
-        }
-        contents.push(target);
-        contents.sort();
     }
 }
 

@@ -24,11 +24,11 @@ use clap::ValueEnum;
 use redb::{ReadableTable, RedbKey, RedbValue, TableDefinition, TypeName};
 
 use crate::cache::{Cache, CacheValue};
+pub use crate::error::*;
+pub use crate::filesystem::*;
 use crate::hash::Hash;
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
-pub use crate::error::*;
-pub use crate::filesystem::*;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
