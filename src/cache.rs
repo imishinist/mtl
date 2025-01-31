@@ -1,12 +1,16 @@
-use crate::{filesystem, ObjectID};
-use byteorder::ByteOrder;
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{mpsc, Arc};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
+use std::{fs, thread};
+
+use byteorder::ByteOrder;
+use redb::{Database, ReadableTable, RedbKey, RedbValue, TableDefinition, TypeName};
 
 use crate::hash::Hash;
-use redb::{ReadableTable, RedbKey, RedbValue, TableDefinition, TypeName};
+use crate::{filesystem, ObjectID};
 
 #[derive(Debug)]
 pub struct CacheKey {
@@ -104,38 +108,51 @@ impl RedbValue for CacheValue {
     }
 }
 
+enum WriteRequest {
+    Insert(CacheKey, CacheValue),
+    Shutdown,
+}
+
 pub const CACHE_TABLE: TableDefinition<CacheKey, CacheValue> = TableDefinition::new("cache-table");
 
 #[derive(Debug)]
 pub struct Cache {
-    db: redb::Database,
+    db: Arc<Database>,
+
+    tx: mpsc::Sender<WriteRequest>,
+    writer_handle: Option<JoinHandle<()>>,
 }
 
 impl Cache {
-    pub fn open<P: AsRef<Path>>(cache_path: P) -> anyhow::Result<Self> {
+    pub fn open<P: AsRef<Path>>(cache_path: P, interval: Duration) -> anyhow::Result<Self> {
         let cache_path = cache_path.as_ref();
         let cache_dir = cache_path.parent().unwrap();
         fs::create_dir_all(cache_dir)?;
 
         let db = if cache_path.exists() {
-            redb::Database::open(cache_path)
+            Database::open(cache_path)
         } else {
-            redb::Database::create(cache_path)
+            Database::create(cache_path)
         }?;
-        Ok(Self { db })
+        let db = Arc::new(db);
+
+        let (tx, rx) = mpsc::channel::<WriteRequest>();
+        let writer_db = db.clone();
+        let writer_handle = thread::spawn(move || {
+            if let Err(e) = writer_thread_loop(writer_db, rx, interval) {
+                log::error!("writer thread error: {:?}", e);
+            }
+        });
+        Ok(Self {
+            db,
+            tx,
+            writer_handle: Some(writer_handle),
+        })
     }
 
     pub fn insert<P: AsRef<Path>>(&self, key: P, value: CacheValue) -> anyhow::Result<()> {
-        let write_txn = self.db.begin_write()?;
-
-        {
-            let mut table = write_txn.open_table(CACHE_TABLE)?;
-
-            let key = CacheKey::new(key);
-            table.insert(key, value)?;
-        }
-        write_txn.commit()?;
-
+        let key = CacheKey::new(key);
+        self.tx.send(WriteRequest::Insert(key, value))?;
         Ok(())
     }
 
@@ -151,15 +168,94 @@ impl Cache {
         };
         x
     }
+
+    fn shutdown_and_join(&mut self) {
+        log::info!("shutting down cache thread");
+        if self.writer_handle.is_none() {
+            return;
+        }
+
+        log::info!("sending shutdown request to writer thread");
+        let _ = self.tx.send(WriteRequest::Shutdown);
+
+        log::info!("joining writer thread");
+        if let Some(handle) = self.writer_handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+impl Drop for Cache {
+    fn drop(&mut self) {
+        self.shutdown_and_join();
+    }
+}
+
+fn writer_thread_loop(
+    db: Arc<Database>,
+    rx: mpsc::Receiver<WriteRequest>,
+    interval: Duration,
+) -> anyhow::Result<()> {
+    let mut buffer = Vec::new();
+    let mut last_flush = Instant::now();
+
+    loop {
+        let remaining = interval
+            .checked_sub(last_flush.elapsed())
+            .unwrap_or(Duration::from_secs(0));
+
+        match rx.recv_timeout(remaining) {
+            Ok(req) => match req {
+                WriteRequest::Insert(k, v) => {
+                    buffer.push((k, v));
+                }
+                WriteRequest::Shutdown => {
+                    flush(&db, &mut buffer)?;
+                    break;
+                }
+            },
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                flush(&db, &mut buffer)?;
+                break;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+        }
+
+        if last_flush.elapsed() >= interval {
+            flush(&db, &mut buffer)?;
+            last_flush = Instant::now();
+        }
+    }
+    Ok(())
+}
+
+fn flush(db: &Database, buffer: &mut Vec<(CacheKey, CacheValue)>) -> anyhow::Result<()> {
+    if buffer.is_empty() {
+        return Ok(());
+    }
+
+    log::info!("flushing cache buffer with {} entries", buffer.len());
+    let write_txn = db.begin_write()?;
+    {
+        let mut table = write_txn.open_table(CACHE_TABLE)?;
+        for (key, value) in buffer.drain(..) {
+            table.insert(key, value)?;
+        }
+    }
+    write_txn.commit()?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
+    use std::thread;
+    use std::time::Duration;
+
     #[test]
     fn test_cache() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("cache.db");
-        let cache = super::Cache::open(path).unwrap();
+        let cache = super::Cache::open(path, Duration::from_millis(10)).unwrap();
 
         let expected = super::CacheValue {
             mtime: 1,
@@ -167,6 +263,7 @@ mod tests {
             object_id: super::ObjectID::new(super::Hash::new(3)),
         };
         cache.insert("foo", expected).unwrap();
+        thread::sleep(Duration::from_millis(20));
 
         let actual = cache.get("foo").unwrap().unwrap();
         assert_eq!(expected, actual);
@@ -178,6 +275,7 @@ mod tests {
         };
         cache.insert("bar", expected).unwrap();
         cache.insert("foo", expected).unwrap();
+        thread::sleep(Duration::from_millis(20));
 
         let actual = cache.get("bar").unwrap().unwrap();
         assert_eq!(expected, actual);

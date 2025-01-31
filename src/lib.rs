@@ -17,6 +17,7 @@ use std::io::{self, Write};
 use std::ops::Deref;
 use std::path::{Components, Path, PathBuf};
 use std::str::FromStr;
+use std::time::Duration;
 
 use byteorder::ByteOrder;
 use clap::ValueEnum;
@@ -431,7 +432,7 @@ impl Context {
             .then(|| redb::Database::open(&packed_db_file))
             .transpose()?;
 
-        let cache = Cache::open(&cache_db_file)?;
+        let cache = Cache::open(&cache_db_file, Duration::from_secs(1))?;
         Ok(Context {
             root_dir,
             packed_db,
