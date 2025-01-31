@@ -1,6 +1,7 @@
-use byteorder::ByteOrder;
 use std::borrow::Borrow;
 use std::fmt;
+
+use byteorder::ByteOrder;
 
 use crate::ParseHashError;
 

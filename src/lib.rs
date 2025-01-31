@@ -7,10 +7,7 @@ mod filter;
 pub mod hash;
 pub(crate) mod progress;
 
-pub use error::*;
-pub use filesystem::*;
 use std::borrow::Borrow;
-
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -29,6 +26,8 @@ use crate::cache::{Cache, CacheValue};
 use crate::hash::Hash;
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
+pub use crate::error::*;
+pub use crate::filesystem::*;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
