@@ -12,7 +12,7 @@ pub fn path_from_bytes(bytes: &[u8]) -> PathBuf {
 }
 
 #[cfg(windows)]
-fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+pub fn path_from_bytes(bytes: &[u8]) -> PathBuf {
     let s = std::str::from_utf8(bytes).expect("Invalid UTF-8");
     std::path::PathBuf::from(s)
 }
