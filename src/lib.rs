@@ -1,4 +1,5 @@
 pub(crate) mod builder;
+pub(crate) mod cache;
 pub mod commands;
 pub mod error;
 pub(crate) mod filesystem;
@@ -24,6 +25,7 @@ use byteorder::ByteOrder;
 use clap::ValueEnum;
 use redb::{ReadableTable, RedbKey, RedbValue, TableDefinition, TypeName};
 
+use crate::cache::{Cache, CacheValue};
 use crate::hash::Hash;
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
@@ -167,6 +169,10 @@ impl ObjectID {
 
     pub fn from_contents<T: AsRef<[u8]>>(contents: T) -> Self {
         ObjectID::new(Hash::from_contents(contents))
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0.as_u64()
     }
 }
 
@@ -411,20 +417,26 @@ pub struct Context {
     root_dir: PathBuf,
 
     packed_db: Option<redb::Database>,
+
+    cache: Cache,
 }
 
 impl Context {
     pub fn new<P: Into<PathBuf>>(root_dir: P) -> anyhow::Result<Self> {
         let root_dir = root_dir.into();
         let packed_db_file = root_dir.join(MTL_DIR).join("pack").join("packed.redb");
+        let cache_db_file = root_dir.join(MTL_DIR).join("cache").join("cache.redb");
 
         let packed_db = packed_db_file
             .exists()
             .then(|| redb::Database::open(&packed_db_file))
             .transpose()?;
+
+        let cache = Cache::open(&cache_db_file)?;
         Ok(Context {
             root_dir,
             packed_db,
+            cache,
         })
     }
 
@@ -443,8 +455,17 @@ impl Context {
         self.root_dir.as_path().join(MTL_DIR).join("pack")
     }
 
+    #[inline]
+    pub fn cache_dir(&self) -> PathBuf {
+        self.root_dir.as_path().join(MTL_DIR).join("cache")
+    }
+
     pub fn pack_file(&self) -> PathBuf {
         self.pack_dir().join("packed.redb")
+    }
+
+    pub fn cache_db_file(&self) -> PathBuf {
+        self.cache_dir().join("cache.redb")
     }
 
     #[inline]
@@ -700,6 +721,25 @@ impl Context {
         }
 
         Ok(objects)
+    }
+
+    pub fn read_cache<P: AsRef<Path>>(&self, key: P) -> Option<CacheValue> {
+        match self.cache.get(key) {
+            Ok(cache_value) => {
+                if let Some(cache_value) = cache_value {
+                    return Some(cache_value);
+                }
+            }
+            Err(e) => log::warn!("failed to read cache: {}", e),
+        }
+        None
+    }
+
+    pub fn write_cache<P: AsRef<Path>>(&self, key: P, value: CacheValue) {
+        match self.cache.insert(key, value) {
+            Ok(_) => {}
+            Err(e) => log::warn!("failed to write cache: {}", e),
+        }
     }
 
     pub fn write_head(&self, object_id: &ObjectID) -> io::Result<()> {

@@ -36,6 +36,10 @@ impl Hash {
     pub fn fixed_width() -> usize {
         8
     }
+
+    pub fn as_u64(&self) -> u64 {
+        self.xxh3
+    }
 }
 
 impl fmt::Display for Hash {

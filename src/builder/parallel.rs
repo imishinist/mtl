@@ -1,12 +1,14 @@
 use std::collections::HashMap;
+use std::fs;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;
-
+use std::time::SystemTime;
 use itertools::Itertools;
 use rayon::prelude::*;
 
 use crate::builder::{FileEntry, TargetEntries};
+use crate::cache::CacheValue;
 use crate::progress::BuildProgressBar;
 use crate::{Context, Object, ObjectID, ObjectType, RelativePath};
 
@@ -104,16 +106,40 @@ fn process_tree_content(
 
 fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> {
     let path = ctx.root_dir().join(entry.path.as_path());
+    let file_name = entry.path.file_name().ok_or(io::Error::new(
+        io::ErrorKind::NotFound,
+        "failed to get file_name",
+    ))?;
+
+    let metadata = fs::metadata(&path)?;
+    let mtime = metadata
+        .modified()?
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()
+        .unwrap_or(std::time::Duration::new(0, 0))
+        .as_micros();
+    let cache_key = entry.path.as_path();
+
+    // cache hit!
+    match ctx.read_cache(&cache_key) {
+        Some(cache_value) if cache_value.mtime == mtime && cache_value.size == metadata.len() => {
+            return Ok(Object::new_file(cache_value.object_id, file_name));
+        }
+        _ => {}
+    }
 
     let mut file = File::open(path)?;
     let mut contents = Vec::new();
     file.read_to_end(&mut contents)?;
 
     let object_id = ObjectID::from_contents(&contents);
-    let file_name = entry.path.file_name().ok_or(io::Error::new(
-        io::ErrorKind::NotFound,
-        "failed to get file_name",
-    ))?;
+    let cache_value = CacheValue {
+        mtime,
+        size: metadata.len(),
+        object_id,
+    };
+    // save cache
+    ctx.write_cache(&cache_key, cache_value);
 
     Ok(Object::new_file(object_id, file_name))
 }

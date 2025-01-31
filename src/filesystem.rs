@@ -1,7 +1,21 @@
 use std::borrow::Cow;
 use std::ffi::OsStr;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+#[cfg(not(windows))]
+pub fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    use std::os::unix::ffi::OsStrExt;
+
+    let os_str = OsStr::from_bytes(bytes);
+    PathBuf::from(os_str)
+}
+
+#[cfg(windows)]
+fn path_from_bytes(bytes: &[u8]) -> PathBuf {
+    let s = std::str::from_utf8(bytes).expect("Invalid UTF-8");
+    std::path::PathBuf::from(s)
+}
 
 #[cfg(any(unix, target_os = "redox"))]
 pub fn osstr_to_bytes(input: &OsStr) -> Cow<[u8]> {
