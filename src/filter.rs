@@ -1,5 +1,8 @@
+mod ignore;
 mod match_all;
 mod path;
+
+pub use ignore::IgnoreFilter;
 pub use match_all::MatchAllFilter;
 pub use path::PathFilter;
 

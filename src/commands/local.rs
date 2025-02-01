@@ -9,7 +9,7 @@ use clap::Args;
 use notify::{Config, Event, RecommendedWatcher, Watcher};
 
 use crate::builder::{Builder, FileTargetGenerator, ScanTargetGenerator, TargetGenerator};
-use crate::filter::{Filter, MatchAllFilter, PathFilter};
+use crate::filter::{Filter, IgnoreFilter, MatchAllFilter, PathFilter};
 use crate::{builder, Context, ObjectType, RelativePath};
 
 #[derive(Args, Debug)]
@@ -105,7 +105,11 @@ fn get_generator(
 }
 
 #[derive(Args, Debug)]
-pub struct Watch {}
+pub struct Watch {
+    /// If true, scan hidden files.
+    #[clap(long, default_value_t = false, verbatim_doc_comment)]
+    hidden: bool,
+}
 
 impl Watch {
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
@@ -126,7 +130,7 @@ impl Watch {
         watcher.watch(&root_dir, notify::RecursiveMode::Recursive)?;
         println!("Start watching {} ... (Ctrl+C to exit)", root_dir.display());
 
-        let filter = MatchAllFilter::new(root_dir.clone());
+        let filter = IgnoreFilter::new(root_dir.clone(), self.hidden);
         loop {
             let event = rx.recv()?;
             let mut events = vec![event];
