@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs;
 use std::fs::File;
 use std::io::{self, Read};
 use std::path::PathBuf;
@@ -112,7 +111,9 @@ fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> 
         "failed to get file_name",
     ))?;
 
-    let metadata = fs::metadata(&path)?;
+    let mut file = File::open(path)?;
+
+    let metadata = file.metadata()?;
     let mtime = metadata
         .modified()?
         .duration_since(SystemTime::UNIX_EPOCH)
@@ -129,7 +130,6 @@ fn process_file_content(ctx: &Context, entry: &FileEntry) -> io::Result<Object> 
         _ => {}
     }
 
-    let mut file = File::open(path)?;
     let mut contents = Vec::new();
     file.read_to_end(&mut contents)?;
 
