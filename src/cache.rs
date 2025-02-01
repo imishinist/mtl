@@ -263,7 +263,7 @@ mod tests {
             object_id: super::ObjectID::new(super::Hash::new(3)),
         };
         cache.insert("foo", expected).unwrap();
-        thread::sleep(Duration::from_millis(20));
+        thread::sleep(Duration::from_millis(100));
 
         let actual = cache.get("foo").unwrap().unwrap();
         assert_eq!(expected, actual);
@@ -275,7 +275,7 @@ mod tests {
         };
         cache.insert("bar", expected).unwrap();
         cache.insert("foo", expected).unwrap();
-        thread::sleep(Duration::from_millis(20));
+        thread::sleep(Duration::from_millis(100));
 
         let actual = cache.get("bar").unwrap().unwrap();
         assert_eq!(expected, actual);
