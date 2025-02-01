@@ -1,11 +1,16 @@
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::sync::mpsc::TryRecvError;
+use std::time::Duration;
 
 use clap::Args;
+use notify::{Config, Event, RecommendedWatcher, Watcher};
 
 use crate::builder::{Builder, FileTargetGenerator, ScanTargetGenerator, TargetGenerator};
 use crate::filter::{Filter, MatchAllFilter, PathFilter};
-use crate::Context;
+use crate::{builder, Context, ObjectType, RelativePath};
 
 #[derive(Args, Debug)]
 pub struct Build {
@@ -96,5 +101,76 @@ fn get_generator(
     match input {
         Some(input) => Box::new(FileTargetGenerator::new(filter, input.to_os_string())),
         None => Box::new(ScanTargetGenerator::new(filter, hidden)),
+    }
+}
+
+#[derive(Args, Debug)]
+pub struct Watch {}
+
+impl Watch {
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
+        let ctx = ctx;
+
+        let (tx, rx) = mpsc::channel::<Event>();
+
+        let root_dir = ctx.root_dir().to_path_buf();
+        let mut watcher = RecommendedWatcher::new(
+            move |event| match event {
+                Ok(event) => tx.send(event).unwrap(),
+                Err(err) => {
+                    eprintln!("Error: {:?}", err);
+                }
+            },
+            Config::default().with_poll_interval(Duration::from_secs(1)),
+        )?;
+        watcher.watch(&root_dir, notify::RecursiveMode::Recursive)?;
+        println!("Start watching {} ... (Ctrl+C to exit)", root_dir.display());
+
+        let filter = MatchAllFilter::new(root_dir.clone());
+        loop {
+            let event = rx.recv()?;
+            let mut events = vec![event];
+
+            loop {
+                match rx.try_recv() {
+                    Ok(e) => events.push(e),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        log::info!("Channel disconnected. Exiting...");
+                        return Ok(());
+                    }
+                }
+            }
+
+            let mut unique_paths = HashSet::new();
+            for ev in events {
+                for path in ev.paths {
+                    let path = match path.strip_prefix(&root_dir) {
+                        Ok(path) => path.to_path_buf(),
+                        Err(_) => {
+                            log::debug!("Failed to strip prefix: {:?}", path);
+                            continue;
+                        }
+                    };
+                    let path = RelativePath::from(path);
+                    if !filter.path_matches(&path) {
+                        continue;
+                    }
+                    unique_paths.insert(path);
+                }
+            }
+
+            for path in unique_paths {
+                let file_entry = builder::FileEntry::new(ObjectType::File, path.clone(), 0);
+                let object_id = match builder::hash_file_entry(&ctx, &file_entry) {
+                    Ok(object_id) => object_id,
+                    Err(e) => {
+                        log::debug!("Failed to hash file entry: {} {:?}", path, e.kind());
+                        continue;
+                    }
+                };
+                println!("{} {}", object_id.object_id, path);
+            }
+        }
     }
 }

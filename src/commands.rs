@@ -26,6 +26,9 @@ pub enum LocalCommand {
 
     /// List target files
     List(local::List),
+
+    /// Watch target files
+    Watch(local::Watch),
 }
 
 impl LocalCommand {
@@ -33,6 +36,7 @@ impl LocalCommand {
         match self {
             LocalCommand::Build(cmd) => cmd.run(ctx),
             LocalCommand::List(cmd) => cmd.run(ctx),
+            LocalCommand::Watch(cmd) => cmd.run(ctx),
         }
     }
 }
