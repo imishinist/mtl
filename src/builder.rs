@@ -1,18 +1,22 @@
 mod parallel;
 
+use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, Read};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::time::SystemTime;
 use std::{fs, io};
 
 use ignore::{WalkBuilder, WalkState};
+use itertools::Itertools;
 
+use crate::cache::CacheValue;
 use crate::filter::Filter;
 use crate::progress::BuildProgressBar;
-use crate::{Context, Object, ObjectType, ReadContentError, RelativePath};
+use crate::{Context, Object, ObjectID, ObjectType, ReadContentError, RelativePath};
 
 pub trait TargetGenerator {
     fn generate(&self, ctx: &Context) -> anyhow::Result<TargetEntries, ReadContentError>;
@@ -69,6 +73,69 @@ impl Ord for FileEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.path.cmp(&other.path)
     }
+}
+
+pub fn process_tree_content(
+    ctx: &Context,
+    map: &HashMap<RelativePath, Vec<Object>>,
+    entry: &FileEntry,
+) -> io::Result<Option<Object>> {
+    let objects = match map.get(&entry.path) {
+        Some(objects) => objects.iter().sorted().collect::<Vec<_>>(),
+        None => return Ok(None), // empty dir
+    };
+
+    match &entry.path {
+        RelativePath::Path(path) => {
+            let object_id = ctx.write_tree_contents(&objects)?;
+            Ok(Some(Object::new_tree(object_id, path)))
+        }
+        RelativePath::Root => {
+            let object_id = ctx.write_tree_contents(&objects)?;
+            Ok(Some(Object::new_tree(object_id, PathBuf::from(""))))
+        }
+    }
+}
+
+pub fn hash_file_entry(ctx: &Context, entry: &FileEntry) -> io::Result<Object> {
+    let path = ctx.root_dir().join(entry.path.as_path());
+    let file_name = entry.path.file_name().ok_or(io::Error::new(
+        io::ErrorKind::NotFound,
+        "failed to get file_name",
+    ))?;
+
+    let mut file = File::open(path)?;
+
+    let metadata = file.metadata()?;
+    let mtime = metadata
+        .modified()?
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()
+        .unwrap_or(std::time::Duration::new(0, 0))
+        .as_micros();
+    let cache_key = entry.path.as_path();
+
+    // cache hit!
+    match ctx.read_cache(&cache_key) {
+        Some(cache_value) if cache_value.mtime == mtime && cache_value.size == metadata.len() => {
+            return Ok(Object::new_file(cache_value.object_id, file_name));
+        }
+        _ => {}
+    }
+
+    let mut contents = Vec::new();
+    file.read_to_end(&mut contents)?;
+
+    let object_id = ObjectID::from_contents(&contents);
+    let cache_value = CacheValue {
+        mtime,
+        size: metadata.len(),
+        object_id,
+    };
+    // save cache
+    ctx.write_cache(&cache_key, cache_value);
+
+    Ok(Object::new_file(object_id, file_name))
 }
 
 #[derive(Debug)]
