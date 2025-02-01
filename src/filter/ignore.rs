@@ -37,7 +37,7 @@ impl Filter for IgnoreFilter {
 
     fn path_matches(&self, path: &RelativePath) -> bool {
         let path = path.as_path();
-        if self.hidden && is_hidden(path) {
+        if !self.hidden && is_hidden(path) {
             return false;
         }
         !self
