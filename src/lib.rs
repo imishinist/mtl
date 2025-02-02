@@ -76,6 +76,13 @@ impl RelativePath {
             RelativePath::Path(path) => RelativePath::Path(path.join(name)),
         }
     }
+
+    pub fn depth(&self) -> usize {
+        match self {
+            RelativePath::Root => 0,
+            RelativePath::Path(path) => path.components().count(),
+        }
+    }
 }
 
 impl<P: Into<PathBuf>> From<P> for RelativePath {

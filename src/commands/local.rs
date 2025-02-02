@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::sync::mpsc::TryRecvError;
+use std::sync::mpsc::{Receiver, RecvError, TryRecvError};
 use std::time::Duration;
 
 use clap::Args;
@@ -112,9 +112,29 @@ pub struct Watch {
 }
 
 impl Watch {
-    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let ctx = ctx;
+    fn drain_messages(&self, receiver: &Receiver<Event>) -> Vec<Event> {
+        let mut events = vec![];
+        loop {
+            match receiver.recv() {
+                Ok(event) => events.push(event),
+                Err(RecvError) => {
+                    log::info!("Channel disconnected. Exiting...");
+                    return events;
+                }
+            }
+            match receiver.try_recv() {
+                Ok(event) => events.push(event),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    log::info!("Channel disconnected. Exiting...");
+                    return events;
+                }
+            }
+        }
+        events
+    }
 
+    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
         let (tx, rx) = mpsc::channel::<Event>();
 
         let root_dir = ctx.root_dir().to_path_buf();
@@ -132,22 +152,8 @@ impl Watch {
 
         let filter = IgnoreFilter::new(root_dir.clone(), self.hidden);
         loop {
-            let event = rx.recv()?;
-            let mut events = vec![event];
-
-            loop {
-                match rx.try_recv() {
-                    Ok(e) => events.push(e),
-                    Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => {
-                        log::info!("Channel disconnected. Exiting...");
-                        return Ok(());
-                    }
-                }
-            }
-
             let mut unique_paths = HashSet::new();
-            for ev in events {
+            for ev in self.drain_messages(&rx) {
                 for path in ev.paths {
                     let path = match path.strip_prefix(&root_dir) {
                         Ok(path) => path.to_path_buf(),
@@ -165,7 +171,8 @@ impl Watch {
             }
 
             for path in unique_paths {
-                let file_entry = builder::FileEntry::new(ObjectType::File, path.clone(), 0);
+                let depth = path.depth();
+                let file_entry = builder::FileEntry::new(ObjectType::File, path.clone(), depth);
                 let object_id = match builder::hash_file_entry(&ctx, &file_entry) {
                     Ok(object_id) => object_id,
                     Err(e) => {
