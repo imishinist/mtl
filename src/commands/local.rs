@@ -114,6 +114,7 @@ pub struct Watch {
 
 impl Watch {
     fn handle_event(events: &mut HashSet<PathBuf>, event: Event) {
+        log::trace!("received event: {:?}", event);
         match event.kind {
             EventKind::Create(create) if create == CreateKind::File => {
                 events.extend(event.paths);
@@ -121,7 +122,7 @@ impl Watch {
             EventKind::Modify(_) => {
                 events.extend(event.paths);
             }
-            _ => log::debug!("Received event: {:?}", event),
+            _ => log::debug!("ignored event: {:?}", event),
         }
     }
 
