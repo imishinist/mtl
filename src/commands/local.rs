@@ -6,7 +6,8 @@ use std::sync::mpsc::{Receiver, RecvError, TryRecvError};
 use std::time::{Duration, Instant};
 
 use clap::Args;
-use notify::{Config, Event, RecommendedWatcher, Watcher};
+use notify::event::CreateKind;
+use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
 
 use crate::builder::{Builder, FileTargetGenerator, ScanTargetGenerator, TargetGenerator};
 use crate::filter::{Filter, IgnoreFilter, MatchAllFilter, PathFilter};
@@ -112,6 +113,18 @@ pub struct Watch {
 }
 
 impl Watch {
+    fn handle_event(events: &mut HashSet<PathBuf>, event: Event) {
+        match event.kind {
+            EventKind::Create(create) if create == CreateKind::File => {
+                events.extend(event.paths);
+            }
+            EventKind::Modify(_) => {
+                events.extend(event.paths);
+            }
+            _ => log::debug!("Received event: {:?}", event),
+        }
+    }
+
     fn drain_messages(
         &self,
         receiver: &Receiver<Event>,
@@ -121,7 +134,7 @@ impl Watch {
         let mut events = HashSet::new();
 
         match receiver.recv() {
-            Ok(event) => events.extend(event.paths),
+            Ok(event) => Self::handle_event(&mut events, event),
             Err(RecvError) => {
                 log::info!("Channel disconnected. Exiting...");
                 return events;
@@ -131,7 +144,7 @@ impl Watch {
         let start = Instant::now();
         while Instant::now().duration_since(start) < debounce && events.len() < max_entry {
             match receiver.try_recv() {
-                Ok(event) => events.extend(event.paths),
+                Ok(event) => Self::handle_event(&mut events, event),
                 Err(TryRecvError::Empty) => {
                     std::thread::sleep(Duration::from_millis(50));
                 }
