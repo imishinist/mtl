@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, RecvError, TryRecvError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use clap::Args;
 use notify::{Config, Event, RecommendedWatcher, Watcher};
@@ -112,19 +112,29 @@ pub struct Watch {
 }
 
 impl Watch {
-    fn drain_messages(&self, receiver: &Receiver<Event>) -> Vec<Event> {
-        let mut events = vec![];
-        loop {
-            match receiver.recv() {
-                Ok(event) => events.push(event),
-                Err(RecvError) => {
-                    log::info!("Channel disconnected. Exiting...");
-                    return events;
-                }
+    fn drain_messages(
+        &self,
+        receiver: &Receiver<Event>,
+        debounce: Duration,
+        max_entry: usize,
+    ) -> HashSet<PathBuf> {
+        let mut events = HashSet::new();
+
+        match receiver.recv() {
+            Ok(event) => events.extend(event.paths),
+            Err(RecvError) => {
+                log::info!("Channel disconnected. Exiting...");
+                return events;
             }
+        }
+
+        let start = Instant::now();
+        while Instant::now().duration_since(start) < debounce && events.len() < max_entry {
             match receiver.try_recv() {
-                Ok(event) => events.push(event),
-                Err(TryRecvError::Empty) => break,
+                Ok(event) => events.extend(event.paths),
+                Err(TryRecvError::Empty) => {
+                    std::thread::sleep(Duration::from_millis(50));
+                }
                 Err(TryRecvError::Disconnected) => {
                     log::info!("Channel disconnected. Exiting...");
                     return events;
@@ -135,42 +145,37 @@ impl Watch {
     }
 
     pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
+        let max_entry = 5000;
+        let debounce = Duration::from_secs(1);
         let (tx, rx) = mpsc::channel::<Event>();
 
         let root_dir = ctx.root_dir().to_path_buf();
+
         let mut watcher = RecommendedWatcher::new(
             move |event| match event {
                 Ok(event) => tx.send(event).unwrap(),
-                Err(err) => {
-                    eprintln!("Error: {:?}", err);
-                }
+                Err(err) => eprintln!("Error: {:?}", err),
             },
-            Config::default().with_poll_interval(Duration::from_secs(1)),
+            Config::default(),
         )?;
         watcher.watch(&root_dir, notify::RecursiveMode::Recursive)?;
         println!("Start watching {} ... (Ctrl+C to exit)", root_dir.display());
 
         let filter = IgnoreFilter::new(root_dir.clone(), self.hidden);
         loop {
-            let mut unique_paths = HashSet::new();
-            for ev in self.drain_messages(&rx) {
-                for path in ev.paths {
-                    let path = match path.strip_prefix(&root_dir) {
-                        Ok(path) => path.to_path_buf(),
-                        Err(_) => {
-                            log::debug!("Failed to strip prefix: {:?}", path);
-                            continue;
-                        }
-                    };
-                    let path = RelativePath::from(path);
-                    if !filter.path_matches(&path) {
+            for path in self.drain_messages(&rx, debounce, max_entry) {
+                let path = match path.strip_prefix(&root_dir) {
+                    Ok(path) => path.to_path_buf(),
+                    Err(_) => {
+                        log::debug!("Failed to strip prefix: {:?}", path);
                         continue;
                     }
-                    unique_paths.insert(path);
+                };
+                let path = RelativePath::from(path);
+                if !filter.path_matches(&path) {
+                    continue;
                 }
-            }
 
-            for path in unique_paths {
                 let depth = path.depth();
                 let file_entry = builder::FileEntry::new(ObjectType::File, path.clone(), depth);
                 let object_id = match builder::hash_file_entry(&ctx, &file_entry) {
