@@ -5,6 +5,7 @@ use std::{env, time};
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+#[cfg(not(windows))]
 use pprof::protos::Message;
 
 use mtl::{commands, Context};
