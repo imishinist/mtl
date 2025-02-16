@@ -18,10 +18,12 @@ struct MTLCommands {
     #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
     dir: Option<PathBuf>,
 
+    #[cfg(not(windows))]
     /// performance profile
     #[clap(long, value_name = "file")]
     profile: Option<OsString>,
 
+    #[cfg(not(windows))]
     /// performance flamegraph
     #[clap(long, value_name = "file")]
     flamegraph: Option<OsString>,
@@ -99,12 +101,12 @@ fn main() -> anyhow::Result<()> {
 
     let mtl = MTLCommands::parse();
 
-    let mut profiler = None;
-    if let Some(_) = mtl.profile.as_ref() {
-        profiler = Some(pprof::ProfilerGuard::new(100)?);
-    } else if let Some(_) = mtl.flamegraph.as_ref() {
-        profiler = Some(pprof::ProfilerGuard::new(100)?);
-    }
+    #[cfg(not(windows))]
+    let profiler = if mtl.profile.is_some() || mtl.flamegraph.is_some() {
+        Some(pprof::ProfilerGuard::new(100)?)
+    } else {
+        None
+    };
 
     let dir = mtl
         .dir
@@ -129,6 +131,7 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("Elapsed time: {:?}", start.elapsed());
 
+    #[cfg(not(windows))]
     if let Some(guard) = profiler {
         match guard.report().build() {
             Ok(report) => {
