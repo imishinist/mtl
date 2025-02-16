@@ -1,8 +1,11 @@
+use std::ffi::OsString;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::{env, time};
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+use pprof::protos::Message;
 
 use mtl::{commands, Context};
 
@@ -14,6 +17,14 @@ struct MTLCommands {
     /// Working directory.
     #[clap(short, long, value_name = "directory", verbatim_doc_comment)]
     dir: Option<PathBuf>,
+
+    /// performance profile
+    #[clap(long, value_name = "file")]
+    profile: Option<OsString>,
+
+    /// performance flamegraph
+    #[clap(long, value_name = "file")]
+    flamegraph: Option<OsString>,
 
     #[command(subcommand)]
     commands: Commands,
@@ -88,6 +99,13 @@ fn main() -> anyhow::Result<()> {
 
     let mtl = MTLCommands::parse();
 
+    let mut profiler = None;
+    if let Some(_) = mtl.profile.as_ref() {
+        profiler = Some(pprof::ProfilerGuard::new(100)?);
+    } else if let Some(_) = mtl.flamegraph.as_ref() {
+        profiler = Some(pprof::ProfilerGuard::new(100)?);
+    }
+
     let dir = mtl
         .dir
         .as_ref()
@@ -110,6 +128,26 @@ fn main() -> anyhow::Result<()> {
     }
 
     log::info!("Elapsed time: {:?}", start.elapsed());
+
+    if let Some(guard) = profiler {
+        match guard.report().build() {
+            Ok(report) => {
+                if let Some(file) = mtl.profile {
+                    let mut file = File::create(file)?;
+
+                    let profile = report.pprof()?;
+                    profile.write_to_writer(&mut file)?;
+                }
+
+                if let Some(file) = mtl.flamegraph {
+                    let mut file = File::create(file)?;
+
+                    report.flamegraph(&mut file)?;
+                }
+            }
+            Err(_) => {}
+        };
+    }
 
     Ok(())
 }
