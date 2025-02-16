@@ -31,6 +31,8 @@ tokio = { version = "1.43.0", features = ["rt-multi-thread", "fs", "macros"] }
 xxhash-rust = { version = "0.8.15", features = ["xxh64", "xxh3"] }
 tempfile = "3.16.0"
 notify = "8.0.0"
+
+[target.'cfg(not(windows))'.dependencies]
 pprof = { version = "0.14.0", features = ["protobuf-codec", "flamegraph"] }
 
 [dev-dependencies]
