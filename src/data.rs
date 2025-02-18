@@ -112,10 +112,69 @@ impl RedbKey for ObjectID {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
+pub enum ObjectRef {
+    Reference(String),
+    ID(ObjectID),
+}
+
+impl ObjectRef {
+    pub fn new_reference<S: Into<String>>(reference: S) -> Self {
+        ObjectRef::Reference(reference.into())
+    }
+
+    pub fn new_id(object_id: ObjectID) -> Self {
+        ObjectRef::ID(object_id)
+    }
+}
+
+impl fmt::Display for ObjectRef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        match self {
+            ObjectRef::Reference(reference) => write!(f, "{}", reference),
+            ObjectRef::ID(object_id) => write!(f, "{}", object_id),
+        }
+    }
+}
+
+impl FromStr for ObjectRef {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match ObjectID::from_hex(s) {
+            Ok(object_id) => Ok(ObjectRef::new_id(object_id)),
+            Err(_) => Ok(ObjectRef::new_reference(s)),
+        }
+    }
+}
+
+impl From<&str> for ObjectRef {
+    fn from(value: &str) -> Self {
+        ObjectRef::Reference(value.to_string())
+    }
+}
+
+impl PartialOrd for ObjectRef {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ObjectRef {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (ObjectRef::Reference(a), ObjectRef::Reference(b)) => a.cmp(b),
+            (ObjectRef::ID(a), ObjectRef::ID(b)) => a.cmp(b),
+            (ObjectRef::Reference(_), ObjectRef::ID(_)) => Ordering::Less,
+            (ObjectRef::ID(_), ObjectRef::Reference(_)) => Ordering::Greater,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::hash::Hash;
-    use crate::{ObjectID, ObjectType};
+    use crate::{ObjectID, ObjectRef, ObjectType};
     use std::str::FromStr;
 
     #[test]
@@ -163,6 +222,22 @@ mod tests {
         assert_eq!(
             ObjectID::from_str("d447b1ea40e6988b").unwrap(),
             ObjectID::new(Hash::from_hex("d447b1ea40e6988b").unwrap())
+        );
+    }
+
+    #[test]
+    fn test_object_ref() {
+        assert_eq!(
+            "d447b1ea40e6988b".parse::<ObjectRef>().unwrap(),
+            ObjectRef::new_id(ObjectID::from_hex("d447b1ea40e6988b").unwrap())
+        );
+        assert_eq!(
+            "HEAD".parse::<ObjectRef>().unwrap(),
+            ObjectRef::new_reference("HEAD")
+        );
+        assert_eq!(
+            "invalid_hex".parse::<ObjectRef>().unwrap(),
+            ObjectRef::new_reference("invalid_hex")
         );
     }
 }
