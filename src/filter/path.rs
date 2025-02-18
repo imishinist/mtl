@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::filter::Filter;
-use crate::RelativePath;
+use crate::path::RelativePath;
 
 #[derive(Clone)]
 pub struct PathFilter {
@@ -53,7 +53,7 @@ impl Filter for PathFilter {
 #[cfg(test)]
 mod tests {
     use crate::filter::{Filter, PathFilter};
-    use crate::RelativePath;
+    use crate::path::RelativePath;
     use std::path::PathBuf;
 
     #[test]

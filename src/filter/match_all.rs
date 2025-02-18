@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::filter::Filter;
-use crate::{RelativePath, MTL_DIR};
+use crate::{path::RelativePath, MTL_DIR};
 
 #[derive(Clone)]
 pub struct MatchAllFilter(PathBuf);

@@ -8,7 +8,7 @@ pub use path::PathFilter;
 
 use std::path::Path;
 
-use crate::RelativePath;
+use crate::path::RelativePath;
 
 pub trait Filter: Send + Sync {
     fn root(&self) -> &Path;

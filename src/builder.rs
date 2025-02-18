@@ -15,7 +15,7 @@ use itertools::Itertools;
 use crate::cache::CacheValue;
 use crate::filter::Filter;
 use crate::progress::BuildProgressBar;
-use crate::{Context, Object, ObjectID, ObjectType, ReadContentError, RelativePath};
+use crate::{path::RelativePath, Context, Object, ObjectID, ObjectType, ReadContentError};
 
 pub trait TargetGenerator {
     fn generate(&self, ctx: &Context) -> anyhow::Result<TargetEntries, ReadContentError>;

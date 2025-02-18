@@ -5,6 +5,7 @@ pub mod error;
 pub(crate) mod filesystem;
 mod filter;
 pub mod hash;
+pub mod path;
 pub(crate) mod progress;
 
 use std::borrow::Borrow;
@@ -14,7 +15,6 @@ use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
-use std::ops::Deref;
 use std::path::{Components, Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
@@ -27,112 +27,13 @@ use crate::cache::{Cache, CacheValue};
 pub use crate::error::*;
 pub use crate::filesystem::*;
 use crate::hash::Hash;
+use crate::path::RelativePath;
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
-
-#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
-pub enum RelativePath {
-    Root,
-    Path(PathBuf),
-}
-
-impl RelativePath {
-    pub fn is_root(&self) -> bool {
-        matches!(self, RelativePath::Root)
-    }
-
-    pub fn parent(&self) -> Self {
-        match self {
-            RelativePath::Root => RelativePath::Root,
-            RelativePath::Path(path) => match path.parent() {
-                None => RelativePath::Root,
-                Some(parent) if parent.as_os_str().eq("") => RelativePath::Root,
-                Some(parent) => RelativePath::Path(parent.to_path_buf()),
-            },
-        }
-    }
-
-    pub fn file_name(&self) -> Option<PathBuf> {
-        match self {
-            RelativePath::Root => None,
-            RelativePath::Path(path) => path.file_name().map(PathBuf::from),
-        }
-    }
-
-    pub fn as_path(&self) -> &Path {
-        match self {
-            RelativePath::Root => Path::new(""),
-            RelativePath::Path(path) => path.as_path(),
-        }
-    }
-
-    pub fn join<P: AsRef<Path>>(&self, name: P) -> Self {
-        match self {
-            RelativePath::Root => RelativePath::Path(PathBuf::from(name.as_ref())),
-            RelativePath::Path(path) => RelativePath::Path(path.join(name)),
-        }
-    }
-
-    pub fn depth(&self) -> usize {
-        match self {
-            RelativePath::Root => 0,
-            RelativePath::Path(path) => path.components().count(),
-        }
-    }
-}
-
-impl<P: Into<PathBuf>> From<P> for RelativePath {
-    fn from(path: P) -> Self {
-        RelativePath::Path(path.into())
-    }
-}
-
-impl AsRef<Path> for RelativePath {
-    fn as_ref(&self) -> &Path {
-        self.as_path()
-    }
-}
-
-impl Deref for RelativePath {
-    type Target = Path;
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            RelativePath::Root => Path::new(""),
-            RelativePath::Path(path) => path.as_path(),
-        }
-    }
-}
-
-impl fmt::Display for RelativePath {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            RelativePath::Root => write!(f, ""),
-            RelativePath::Path(path) => write!(f, "{}", path.display()),
-        }
-    }
-}
-
-impl PartialOrd<Self> for RelativePath {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for RelativePath {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (RelativePath::Root, RelativePath::Root) => Ordering::Equal,
-            (RelativePath::Root, RelativePath::Path(_)) => Ordering::Less,
-            (RelativePath::Path(_), RelativePath::Root) => Ordering::Greater,
-            (RelativePath::Path(a), RelativePath::Path(b)) => a.cmp(b),
-        }
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Clone, ValueEnum, std::hash::Hash)]
 pub enum ObjectType {
@@ -780,39 +681,7 @@ fn serialize_entries<T: AsRef<Object>>(entries: &[T]) -> io::Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
-    use std::ffi::OsString;
     use std::path::Path;
-
-    #[test]
-    fn test_relative_path() {
-        let root = RelativePath::Root;
-        assert_eq!(root.is_root(), true);
-        assert_eq!(root.file_name(), None);
-
-        let mut m = HashMap::new();
-        m.insert(root.clone(), 1);
-        assert_eq!(m.get(&root), Some(&1));
-        assert_eq!(m.get(&RelativePath::Root), Some(&1));
-
-        let os_string_path = OsString::from("foo");
-        let path = RelativePath::Path(PathBuf::from(os_string_path.clone()));
-        assert_eq!(path.is_root(), false);
-        assert_eq!(path.parent(), RelativePath::Root);
-        assert_eq!(path.file_name(), Some(PathBuf::from(os_string_path)));
-
-        let path = RelativePath::Path(PathBuf::from("foo/bar"));
-        assert_eq!(path.is_root(), false);
-        assert_eq!(path.parent(), RelativePath::Path(PathBuf::from("foo")));
-
-        assert_eq!(path.parent().parent().is_root(), true);
-
-        assert_eq!(RelativePath::Root.deref(), Path::new(""));
-        assert_eq!(path.deref(), Path::new("foo/bar"));
-
-        assert_eq!(format!("{}", RelativePath::Root), "");
-        assert_eq!(format!("{}", path), "foo/bar");
-    }
 
     #[test]
     fn test_object_type_from_str() {

@@ -2,7 +2,7 @@ use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::path::{Path, PathBuf};
 
 use crate::filter::Filter;
-use crate::RelativePath;
+use crate::path::RelativePath;
 
 #[derive(Clone)]
 pub struct IgnoreFilter {
@@ -62,7 +62,7 @@ fn is_hidden<P: AsRef<Path>>(path: P) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::filter::{Filter, IgnoreFilter};
-    use crate::RelativePath;
+    use crate::path::RelativePath;
 
     #[test]
     fn test_filter() {

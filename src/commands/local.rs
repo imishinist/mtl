@@ -10,7 +10,7 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
 
 use crate::builder::{Builder, FileTargetGenerator, ScanTargetGenerator, TargetGenerator};
 use crate::filter::{Filter, IgnoreFilter, MatchAllFilter, PathFilter};
-use crate::{builder, Context, ObjectType, RelativePath};
+use crate::{builder, path::RelativePath, Context, ObjectType};
 
 #[derive(Args, Debug)]
 pub struct Build {

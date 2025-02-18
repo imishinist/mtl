@@ -15,8 +15,8 @@ use scopeguard::defer;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
 use crate::{
-    file_size, Context, Object, ObjectExpr, ObjectID, ObjectType, ReadContentError, RelativePath,
-    PACKED_OBJECTS_TABLE,
+    file_size, path::RelativePath, Context, Object, ObjectExpr, ObjectID, ObjectType,
+    ReadContentError, PACKED_OBJECTS_TABLE,
 };
 
 #[derive(Subcommand)]

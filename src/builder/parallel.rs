@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use crate::builder::TargetEntries;
 use crate::progress::BuildProgressBar;
-use crate::{builder, Context, Object, ObjectType, RelativePath};
+use crate::{builder, path::RelativePath, Context, Object, ObjectType};
 
 pub(crate) fn build(
     ctx: &Context,
