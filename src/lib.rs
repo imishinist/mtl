@@ -1,6 +1,7 @@
 pub(crate) mod builder;
 pub(crate) mod cache;
 pub mod commands;
+pub mod data;
 pub mod error;
 pub(crate) mod filesystem;
 mod filter;
@@ -20,10 +21,10 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use byteorder::ByteOrder;
-use clap::ValueEnum;
 use redb::{ReadableTable, RedbKey, RedbValue, TableDefinition, TypeName};
 
 use crate::cache::{Cache, CacheValue};
+pub use crate::data::*;
 pub use crate::error::*;
 pub use crate::filesystem::*;
 use crate::hash::Hash;
@@ -34,34 +35,6 @@ use tikv_jemallocator::Jemalloc;
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
-
-#[derive(Debug, PartialEq, Eq, Clone, ValueEnum, std::hash::Hash)]
-pub enum ObjectType {
-    Tree,
-    File,
-}
-
-impl fmt::Display for ObjectType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        match self {
-            ObjectType::Tree => write!(f, "tree"),
-            ObjectType::File => write!(f, "file"),
-        }
-    }
-}
-
-impl FromStr for ObjectType {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "tree" => Ok(ObjectType::Tree),
-            "file" => Ok(ObjectType::File),
-            "" => Err(ParseError::EmptyToken),
-            s => Err(ParseError::InvalidToken(s.to_string())),
-        }
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone, std::hash::Hash, PartialOrd, Ord)]
 pub struct ObjectID(Hash);
@@ -682,16 +655,6 @@ fn serialize_entries<T: AsRef<Object>>(entries: &[T]) -> io::Result<Vec<u8>> {
 mod tests {
     use super::*;
     use std::path::Path;
-
-    #[test]
-    fn test_object_type_from_str() {
-        assert_eq!(ObjectType::Tree.to_string(), "tree");
-        assert_eq!(ObjectType::File.to_string(), "file");
-
-        assert_eq!("tree".parse::<ObjectType>().unwrap(), ObjectType::Tree);
-        assert_eq!("file".parse::<ObjectType>().unwrap(), ObjectType::File);
-        assert!("foo".parse::<ObjectType>().is_err());
-    }
 
     #[test]
     fn test_object_id() {
