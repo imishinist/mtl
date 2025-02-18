@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::{env, time};
@@ -22,12 +21,12 @@ struct MTLCommands {
     #[cfg(not(windows))]
     /// performance profile
     #[clap(long, value_name = "file")]
-    profile: Option<OsString>,
+    profile: Option<PathBuf>,
 
     #[cfg(not(windows))]
     /// performance flamegraph
     #[clap(long, value_name = "file")]
-    flamegraph: Option<OsString>,
+    flamegraph: Option<PathBuf>,
 
     #[command(subcommand)]
     commands: Commands,

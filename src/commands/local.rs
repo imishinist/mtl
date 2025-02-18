@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, RecvError, TryRecvError};
@@ -19,7 +18,7 @@ pub struct Build {
     /// By default, it scans all files in the current directory.
     /// If you want to receive from standard input, specify "-".
     #[clap(short, long, value_name = "input-file", verbatim_doc_comment)]
-    input: Option<OsString>,
+    input: Option<PathBuf>,
 
     /// If true, don't write the object ID of the root tree to HEAD.
     #[clap(short, long, default_value_t = false, verbatim_doc_comment)]
@@ -59,7 +58,7 @@ pub struct List {
     /// By default, it scans all files in the current directory.
     /// If you want to receive from standard input, specify "-".
     #[clap(short, long, value_name = "input-file", verbatim_doc_comment)]
-    input: Option<OsString>,
+    input: Option<PathBuf>,
 
     /// If true, scan hidden files.
     #[clap(long, default_value_t = false, verbatim_doc_comment)]
@@ -92,7 +91,7 @@ impl List {
 fn get_generator(
     root_dir: PathBuf,
     path: Option<&PathBuf>,
-    input: Option<&OsString>,
+    input: Option<&PathBuf>,
     hidden: bool,
 ) -> Box<dyn TargetGenerator> {
     let filter: Box<dyn Filter> = match path {
@@ -100,7 +99,7 @@ fn get_generator(
         None => Box::new(MatchAllFilter::new(root_dir)),
     };
     match input {
-        Some(input) => Box::new(FileTargetGenerator::new(filter, input.to_os_string())),
+        Some(input) => Box::new(FileTargetGenerator::new(filter, input.clone())),
         None => Box::new(ScanTargetGenerator::new(filter, hidden)),
     }
 }

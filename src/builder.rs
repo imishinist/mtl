@@ -1,10 +1,9 @@
 mod parallel;
 
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -314,18 +313,18 @@ impl TargetGenerator for ScanTargetGenerator {
 
 pub struct FileTargetGenerator {
     filter: Box<dyn Filter>,
-    input: OsString,
+    input: PathBuf,
 }
 
 impl FileTargetGenerator {
-    pub fn new(filter: Box<dyn Filter>, input: OsString) -> Self {
+    pub fn new(filter: Box<dyn Filter>, input: PathBuf) -> Self {
         Self { filter, input }
     }
 }
 
 impl TargetGenerator for FileTargetGenerator {
     fn generate(&self, _ctx: &Context) -> anyhow::Result<TargetEntries, ReadContentError> {
-        let input: BufReaderWrapper<Box<dyn BufRead>> = if self.input.eq("-") {
+        let input: BufReaderWrapper<Box<dyn BufRead>> = if self.input.eq(Path::new("-")) {
             let stdin = io::stdin().lock();
             let reader = io::BufReader::new(stdin);
             BufReaderWrapper::new(Box::new(reader))
