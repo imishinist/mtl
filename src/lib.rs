@@ -9,7 +9,6 @@ pub mod hash;
 pub mod path;
 pub(crate) mod progress;
 
-use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ffi::OsStr;
@@ -20,14 +19,12 @@ use std::path::{Components, Path, PathBuf};
 use std::str::FromStr;
 use std::time::Duration;
 
-use byteorder::ByteOrder;
-use redb::{ReadableTable, RedbKey, RedbValue, TableDefinition, TypeName};
+use redb::{ReadableTable, TableDefinition};
 
 use crate::cache::{Cache, CacheValue};
 pub use crate::data::*;
 pub use crate::error::*;
 pub use crate::filesystem::*;
-use crate::hash::Hash;
 use crate::path::RelativePath;
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
@@ -35,80 +32,6 @@ use tikv_jemallocator::Jemalloc;
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
-
-#[derive(Debug, PartialEq, Eq, Copy, Clone, std::hash::Hash, PartialOrd, Ord)]
-pub struct ObjectID(Hash);
-
-impl ObjectID {
-    pub fn new(hash: Hash) -> Self {
-        ObjectID(hash)
-    }
-
-    pub fn from_hex<S: AsRef<str>>(hex: S) -> Result<Self, ParseError> {
-        Ok(ObjectID::new(Hash::from_hex(hex)?))
-    }
-
-    pub fn from_contents<T: AsRef<[u8]>>(contents: T) -> Self {
-        ObjectID::new(Hash::from_contents(contents))
-    }
-
-    pub fn as_u64(&self) -> u64 {
-        self.0.as_u64()
-    }
-}
-
-impl fmt::Display for ObjectID {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        self.0.fmt(f)
-    }
-}
-
-impl FromStr for ObjectID {
-    type Err = ParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        ObjectID::from_hex(s)
-    }
-}
-
-impl Borrow<u64> for ObjectID {
-    fn borrow(&self) -> &u64 {
-        self.0.borrow()
-    }
-}
-
-impl RedbValue for ObjectID {
-    type SelfType<'a> = ObjectID;
-    type AsBytes<'a> = Vec<u8>;
-
-    fn fixed_width() -> Option<usize> {
-        Some(Hash::fixed_width())
-    }
-
-    fn from_bytes<'a>(data: &'a [u8]) -> ObjectID
-    where
-        Self: 'a,
-    {
-        ObjectID::new(Hash::new(byteorder::LittleEndian::read_u64(data)))
-    }
-
-    fn as_bytes<'a, 'b: 'a>(value: &'a ObjectID) -> Vec<u8>
-    where
-        Self: 'a,
-    {
-        value.0.to_bytes()
-    }
-
-    fn type_name() -> TypeName {
-        TypeName::new("object-id")
-    }
-}
-
-impl RedbKey for ObjectID {
-    fn compare(data1: &[u8], data2: &[u8]) -> Ordering {
-        byteorder::LittleEndian::read_u64(data1).cmp(&byteorder::LittleEndian::read_u64(data2))
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub enum ObjectRef {
@@ -655,24 +578,6 @@ fn serialize_entries<T: AsRef<Object>>(entries: &[T]) -> io::Result<Vec<u8>> {
 mod tests {
     use super::*;
     use std::path::Path;
-
-    #[test]
-    fn test_object_id() {
-        assert_eq!(
-            ObjectID::from_hex("d447b1ea40e6988b").unwrap(),
-            ObjectID::new(Hash::from_hex("d447b1ea40e6988b").unwrap())
-        );
-
-        assert_eq!(
-            ObjectID::from_contents("hello world"),
-            ObjectID::from_hex("d447b1ea40e6988b").unwrap()
-        );
-
-        assert_eq!(
-            ObjectID::from_hex("d447b1ea40e6988b").unwrap().to_string(),
-            "d447b1ea40e6988b".to_string()
-        );
-    }
 
     #[test]
     fn test_context() {
