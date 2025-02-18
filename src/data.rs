@@ -1,6 +1,7 @@
 use std::borrow::Borrow;
 use std::cmp::Ordering;
 use std::fmt;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use byteorder::ByteOrder;
@@ -8,6 +9,7 @@ use clap::ValueEnum;
 use redb::{RedbKey, RedbValue, TypeName};
 
 use crate::hash::Hash;
+use crate::path::RelativePath;
 use crate::ParseError;
 
 #[derive(Debug, PartialEq, Eq, Clone, ValueEnum, std::hash::Hash)]
@@ -171,10 +173,90 @@ impl Ord for ObjectRef {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
+pub struct Object {
+    pub r#type: ObjectType,
+    pub id: ObjectID,
+
+    // only contains basename of file
+    pub basename: RelativePath,
+}
+
+impl Object {
+    pub fn new<P: Into<PathBuf>>(
+        object_type: ObjectType,
+        object_id: ObjectID,
+        file_name: P,
+    ) -> Self {
+        Object {
+            r#type: object_type,
+            id: object_id,
+            basename: RelativePath::from(file_name),
+        }
+    }
+
+    pub fn new_tree<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
+        Object::new(ObjectType::Tree, object_id, file_name.into())
+    }
+
+    pub fn new_file<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
+        Object::new(ObjectType::File, object_id, file_name.into())
+    }
+
+    pub fn is_tree(&self) -> bool {
+        self.r#type == ObjectType::Tree
+    }
+
+    pub fn is_file(&self) -> bool {
+        self.r#type == ObjectType::File
+    }
+
+    pub fn size(&self) -> usize {
+        // "tree" "\t" "d447b1ea40e6988b" "\t" string "\n"
+        // 4 + 1 + 16 + 1 + str_len + 1
+        23 + self.basename.as_os_str().len()
+    }
+
+    pub fn as_object_ref(&self) -> ObjectRef {
+        ObjectRef::new_id(self.id)
+    }
+}
+
+impl AsRef<Object> for Object {
+    fn as_ref(&self) -> &Object {
+        self
+    }
+}
+
+impl PartialOrd<Self> for Object {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Object {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.basename.cmp(&other.basename)
+    }
+}
+
+impl fmt::Display for Object {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(
+            f,
+            "{}\t{}\t{}",
+            self.r#type,
+            self.id,
+            self.basename.file_name().unwrap_or_default().display()
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::hash::Hash;
-    use crate::{ObjectID, ObjectRef, ObjectType};
+    use crate::{Object, ObjectID, ObjectRef, ObjectType};
+    use std::path::PathBuf;
     use std::str::FromStr;
 
     #[test]
@@ -239,5 +321,58 @@ mod tests {
             "invalid_hex".parse::<ObjectRef>().unwrap(),
             ObjectRef::new_reference("invalid_hex")
         );
+    }
+
+    #[test]
+    fn test_object_order() {
+        use crate::path::RelativePath;
+
+        let object_id = ObjectID::from_hex("d447b1ea40e6988b").unwrap();
+        let mut objects = vec![
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("c")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("d")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("a")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("b")),
+        ];
+        let mut compare_target = objects.clone();
+
+        objects.sort();
+        compare_target.sort_by(|a, b| a.basename.cmp(&b.basename));
+        assert_eq!(objects, compare_target);
+        assert_eq!(
+            vec![
+                RelativePath::from("a"),
+                RelativePath::from("b"),
+                RelativePath::from("c"),
+                RelativePath::from("d")
+            ],
+            objects.into_iter().map(|o| o.basename).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_object_size() {
+        let object_id = ObjectID::from_hex("d447b1ea40e6988b").unwrap();
+        let objects = vec![
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("a")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("aa")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("aあ")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("あ")),
+            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("ああ")),
+        ];
+        assert_eq!(objects[0].size(), 24);
+        assert_eq!(objects[1].size(), 25);
+        assert_eq!(objects[2].size(), 27);
+        assert_eq!(objects[3].size(), 26);
+        assert_eq!(objects[4].size(), 29);
+    }
+
+    #[test]
+    fn test_object_display() {
+        let object = Object::new_file(
+            ObjectID::from_hex("d447b1ea40e6988b").unwrap(),
+            PathBuf::from("foo/bar/baz"),
+        );
+        assert_eq!(format!("{}", object), "file\td447b1ea40e6988b\tbaz");
     }
 }

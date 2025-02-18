@@ -183,7 +183,7 @@ impl DiffCommand {
                             |mut file_names: HashMap<RelativePath, Vec<_>>, change| {
                                 let object = change.value();
                                 file_names
-                                    .entry(object.file_path.clone())
+                                    .entry(object.basename.clone())
                                     .or_default()
                                     .push((change, object));
                                 file_names
@@ -213,8 +213,8 @@ impl DiffCommand {
                                 Self::inner_print_diff(
                                     ctx,
                                     parent.join(&file_name),
-                                    &object_a.object_id,
-                                    &object_b.object_id,
+                                    &object_a.id,
+                                    &object_b.id,
                                     max_depth,
                                     depth + 1,
                                 )?;
@@ -238,50 +238,49 @@ impl DiffCommand {
         match (object_a, object_b) {
             (Some(object_a), Some(object_b)) => {
                 let (object_type_style_a, object_type_style_b) =
-                    if object_a.object_type == object_b.object_type {
+                    if object_a.r#type == object_b.r#type {
                         (Style::new(), Style::new())
                     } else {
                         (Style::new().red(), Style::new().green())
                     };
-                let (object_id_style_a, object_id_style_b) =
-                    if object_a.object_id == object_b.object_id {
-                        (Style::new(), Style::new())
-                    } else {
-                        (Style::new().red(), Style::new().green())
-                    };
-                let path = path.join(&object_a.file_path);
+                let (object_id_style_a, object_id_style_b) = if object_a.id == object_b.id {
+                    (Style::new(), Style::new())
+                } else {
+                    (Style::new().red(), Style::new().green())
+                };
+                let path = path.join(&object_a.basename);
                 println!(
                     "{}/{} {}/{}\t{}/{}\t{}",
                     style("-").red(),
                     style("+").green(),
-                    object_type_style_a.apply_to(&object_a.object_type),
-                    object_type_style_b.apply_to(&object_b.object_type),
-                    object_id_style_a.apply_to(&object_a.object_id),
-                    object_id_style_b.apply_to(&object_b.object_id),
+                    object_type_style_a.apply_to(&object_a.r#type),
+                    object_type_style_b.apply_to(&object_b.r#type),
+                    object_id_style_a.apply_to(&object_a.id),
+                    object_id_style_b.apply_to(&object_b.id),
                     path.display(),
                 );
             }
             (Some(object_a), None) => {
-                let path = path.join(&object_a.file_path);
+                let path = path.join(&object_a.basename);
                 println!(
                     "{}/  {}/{}\t{}/{}\t{}",
                     style("-").red(),
-                    style(&object_a.object_type).red(),
+                    style(&object_a.r#type).red(),
                     " ".repeat(4),
-                    style(&object_a.object_id).red(),
+                    style(&object_a.id).red(),
                     " ".repeat(16),
                     style(path.display()).red(),
                 );
             }
             (None, Some(object_b)) => {
-                let path = path.join(&object_b.file_path);
+                let path = path.join(&object_b.basename);
                 println!(
                     " /{} {}/{}\t{}/{}\t{}",
                     style("+").green(),
                     " ".repeat(4),
-                    style(&object_b.object_type).green(),
+                    style(&object_b.r#type).green(),
                     " ".repeat(16),
-                    style(&object_b.object_id).green(),
+                    style(&object_b.id).green(),
                     style(path.display()).green(),
                 );
             }
@@ -399,23 +398,18 @@ impl PrintTreeCommand {
         let parent = parent.into();
         let objects = ctx.read_tree_contents(object_id)?;
         for object in &objects {
-            let file_name = parent.join(&object.file_path);
+            let file_name = parent.join(&object.basename);
 
-            match object.object_type {
+            match object.r#type {
                 ObjectType::Tree => {
                     if object_type.is_none() || object_type == Some(&ObjectType::Tree) {
-                        writeln!(
-                            stdout,
-                            "tree {}\t{}/",
-                            object.object_id,
-                            file_name.display(),
-                        )?;
+                        writeln!(stdout, "tree {}\t{}/", object.id, file_name.display(),)?;
                     }
                     Self::inner_print_tree(
                         ctx,
                         stdout,
                         &file_name,
-                        &object.object_id,
+                        &object.id,
                         object_type,
                         max_depth,
                         depth + 1,
@@ -423,7 +417,7 @@ impl PrintTreeCommand {
                 }
                 ObjectType::File => {
                     if object_type.is_none() || object_type == Some(&ObjectType::File) {
-                        writeln!(stdout, "file {}\t{}", object.object_id, file_name.display())?;
+                        writeln!(stdout, "file {}\t{}", object.id, file_name.display())?;
                     }
                 }
             }
@@ -504,8 +498,8 @@ impl GCCommand {
         let tree = ctx.read_tree_contents(root_object)?;
         for object in tree {
             if object.is_tree() {
-                objects.insert(object.object_id, true);
-                Self::mark_used_object(ctx, &object.object_id, objects)?;
+                objects.insert(object.id, true);
+                Self::mark_used_object(ctx, &object.id, objects)?;
             }
         }
 

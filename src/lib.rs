@@ -9,7 +9,6 @@ pub mod hash;
 pub mod path;
 pub(crate) mod progress;
 
-use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::ffi::OsStr;
 use std::fmt;
@@ -25,7 +24,7 @@ use crate::cache::{Cache, CacheValue};
 pub use crate::data::*;
 pub use crate::error::*;
 pub use crate::filesystem::*;
-use crate::path::RelativePath;
+
 #[cfg(feature = "jemalloc")]
 use tikv_jemallocator::Jemalloc;
 
@@ -71,85 +70,6 @@ impl ObjectExpr {
             Some(path) => ctx.search_object(&self.object_ref, path),
             None => Ok(ctx.deref_object_ref(&self.object_ref)?),
         }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
-pub struct Object {
-    object_type: ObjectType,
-    object_id: ObjectID,
-
-    // only contains basename of file
-    file_path: RelativePath,
-}
-
-impl Object {
-    pub fn new<P: Into<PathBuf>>(
-        object_type: ObjectType,
-        object_id: ObjectID,
-        file_name: P,
-    ) -> Self {
-        Object {
-            object_type,
-            object_id,
-            file_path: RelativePath::from(file_name),
-        }
-    }
-
-    pub fn new_tree<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
-        Object::new(ObjectType::Tree, object_id, file_name.into())
-    }
-
-    pub fn new_file<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
-        Object::new(ObjectType::File, object_id, file_name.into())
-    }
-
-    pub fn is_tree(&self) -> bool {
-        self.object_type == ObjectType::Tree
-    }
-
-    pub fn is_file(&self) -> bool {
-        self.object_type == ObjectType::File
-    }
-
-    pub fn size(&self) -> usize {
-        // "tree" "\t" "d447b1ea40e6988b" "\t" string "\n"
-        // 4 + 1 + 16 + 1 + str_len + 1
-        23 + self.file_path.as_os_str().len()
-    }
-
-    pub fn as_object_ref(&self) -> ObjectRef {
-        ObjectRef::new_id(self.object_id)
-    }
-}
-
-impl AsRef<Object> for Object {
-    fn as_ref(&self) -> &Object {
-        self
-    }
-}
-
-impl PartialOrd<Self> for Object {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Object {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.file_path.cmp(&other.file_path)
-    }
-}
-
-impl fmt::Display for Object {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            "{}\t{}\t{}",
-            self.object_type,
-            self.object_id,
-            self.file_path.file_name().unwrap_or_default().display()
-        )
     }
 }
 
@@ -373,14 +293,14 @@ impl Context {
         let object = self.deref_object_ref(object_ref)?;
         let contents = self.read_tree_contents(&object)?;
         for content in contents {
-            let Some(file_name) = content.file_path.file_name() else {
+            let Some(file_name) = content.basename.file_name() else {
                 continue;
             };
 
             if file_name.as_os_str() == file_path.as_os_str() {
-                let object_ref = ObjectRef::new_id(content.object_id);
+                let object_ref = ObjectRef::new_id(content.id);
                 let mut results = self.inner_search_object_with_routes(&object_ref, components)?;
-                results.push(content.object_id);
+                results.push(content.id);
                 return Ok(results);
             }
         }
@@ -533,57 +453,6 @@ mod tests {
             Path::new("/tmp/.mtl/objects/d4/47b1ea40e6988b")
         );
         assert_eq!(ctx.head_file(), Path::new("/tmp/.mtl/HEAD"));
-    }
-
-    #[test]
-    fn test_object_order() {
-        let object_id = ObjectID::from_hex("d447b1ea40e6988b").unwrap();
-        let mut objects = vec![
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("c")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("d")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("a")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("b")),
-        ];
-        let mut compare_target = objects.clone();
-
-        objects.sort();
-        compare_target.sort_by(|a, b| a.file_path.cmp(&b.file_path));
-        assert_eq!(objects, compare_target);
-        assert_eq!(
-            vec![
-                RelativePath::from("a"),
-                RelativePath::from("b"),
-                RelativePath::from("c"),
-                RelativePath::from("d")
-            ],
-            objects.into_iter().map(|o| o.file_path).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn test_object_size() {
-        let object_id = ObjectID::from_hex("d447b1ea40e6988b").unwrap();
-        let objects = vec![
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("a")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("aa")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("aあ")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("あ")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("ああ")),
-        ];
-        assert_eq!(objects[0].size(), 24);
-        assert_eq!(objects[1].size(), 25);
-        assert_eq!(objects[2].size(), 27);
-        assert_eq!(objects[3].size(), 26);
-        assert_eq!(objects[4].size(), 29);
-    }
-
-    #[test]
-    fn test_object_display() {
-        let object = Object::new_file(
-            ObjectID::from_hex("d447b1ea40e6988b").unwrap(),
-            PathBuf::from("foo/bar/baz"),
-        );
-        assert_eq!(format!("{}", object), "file\td447b1ea40e6988b\tbaz");
     }
 
     #[test]

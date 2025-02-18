@@ -42,10 +42,10 @@ impl Build {
         let builder = Builder::new(generator, self.progress);
         let object = builder.build(&ctx)?;
         match self.no_write_head {
-            true => println!("HEAD: {}", object.object_id),
+            true => println!("HEAD: {}", object.id),
             false => {
-                ctx.write_head(&object.object_id)?;
-                println!("Written HEAD: {}", object.object_id);
+                ctx.write_head(&object.id)?;
+                println!("Written HEAD: {}", object.id);
             }
         }
         Ok(())
@@ -198,7 +198,7 @@ impl Watch {
                         continue;
                     }
                 };
-                println!("{} {}", object_id.object_id, path);
+                println!("{} {}", object_id.id, path);
             }
         }
     }
