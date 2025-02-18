@@ -15,7 +15,7 @@ use scopeguard::defer;
 use similar::{self, Algorithm, ChangeTag, DiffOp};
 
 use crate::{
-    file_size, path::RelativePath, Context, Object, ObjectExpr, ObjectID, ObjectType,
+    file_size, path::RelativePath, Context, Object, ObjectExpr, ObjectID, ObjectKind,
     ReadContentError, PACKED_OBJECTS_TABLE,
 };
 
@@ -237,13 +237,12 @@ impl DiffCommand {
         let path = path.as_ref();
         match (object_a, object_b) {
             (Some(object_a), Some(object_b)) => {
-                let (object_type_style_a, object_type_style_b) =
-                    if object_a.r#type == object_b.r#type {
-                        (Style::new(), Style::new())
-                    } else {
-                        (Style::new().red(), Style::new().green())
-                    };
-                let (object_id_style_a, object_id_style_b) = if object_a.id == object_b.id {
+                let (kind_style_a, kind_style_b) = if object_a.kind == object_b.kind {
+                    (Style::new(), Style::new())
+                } else {
+                    (Style::new().red(), Style::new().green())
+                };
+                let (id_style_a, id_style_b) = if object_a.id == object_b.id {
                     (Style::new(), Style::new())
                 } else {
                     (Style::new().red(), Style::new().green())
@@ -253,10 +252,10 @@ impl DiffCommand {
                     "{}/{} {}/{}\t{}/{}\t{}",
                     style("-").red(),
                     style("+").green(),
-                    object_type_style_a.apply_to(&object_a.r#type),
-                    object_type_style_b.apply_to(&object_b.r#type),
-                    object_id_style_a.apply_to(&object_a.id),
-                    object_id_style_b.apply_to(&object_b.id),
+                    kind_style_a.apply_to(&object_a.kind),
+                    kind_style_b.apply_to(&object_b.kind),
+                    id_style_a.apply_to(&object_a.id),
+                    id_style_b.apply_to(&object_b.id),
                     path.display(),
                 );
             }
@@ -265,7 +264,7 @@ impl DiffCommand {
                 println!(
                     "{}/  {}/{}\t{}/{}\t{}",
                     style("-").red(),
-                    style(&object_a.r#type).red(),
+                    style(&object_a.kind).red(),
                     " ".repeat(4),
                     style(&object_a.id).red(),
                     " ".repeat(16),
@@ -278,7 +277,7 @@ impl DiffCommand {
                     " /{} {}/{}\t{}/{}\t{}",
                     style("+").green(),
                     " ".repeat(4),
-                    style(&object_b.r#type).green(),
+                    style(&object_b.kind).green(),
                     " ".repeat(16),
                     style(&object_b.id).green(),
                     style(path.display()).green(),
@@ -348,7 +347,7 @@ pub struct PrintTreeCommand {
 
     /// Type of objects to print
     #[clap(long, short, value_name = "type")]
-    r#type: Option<ObjectType>,
+    r#type: Option<ObjectKind>,
 
     /// Maximum depth to print
     #[clap(long, value_name = "max-depth")]
@@ -361,31 +360,31 @@ impl PrintTreeCommand {
             Some(ref object_id) => object_id.resolve(&ctx)?,
             None => ctx.read_head()?,
         };
-        let object_type = self.r#type.as_ref();
+        let kind = self.r#type.as_ref();
 
         println!("tree {}\t.", object_id);
-        Self::print_tree(&ctx, &object_id, object_type, self.max_depth)?;
+        Self::print_tree(&ctx, &object_id, kind, self.max_depth)?;
 
         Ok(())
     }
 
     fn print_tree(
         ctx: &Context,
-        object_id: &ObjectID,
-        object_type: Option<&ObjectType>,
+        id: &ObjectID,
+        kind: Option<&ObjectKind>,
         max_depth: Option<usize>,
     ) -> anyhow::Result<()> {
         let stdout = io::stdout();
         let mut stdout = BufWriter::new(stdout.lock());
-        Self::inner_print_tree(ctx, &mut stdout, "", object_id, object_type, max_depth, 0)
+        Self::inner_print_tree(ctx, &mut stdout, "", id, kind, max_depth, 0)
     }
 
     fn inner_print_tree<W: io::Write, P: Into<PathBuf>>(
         ctx: &Context,
         stdout: &mut W,
         parent: P,
-        object_id: &ObjectID,
-        object_type: Option<&ObjectType>,
+        id: &ObjectID,
+        kind: Option<&ObjectKind>,
         max_depth: Option<usize>,
         depth: usize,
     ) -> anyhow::Result<()> {
@@ -396,13 +395,13 @@ impl PrintTreeCommand {
         }
 
         let parent = parent.into();
-        let objects = ctx.read_tree_contents(object_id)?;
+        let objects = ctx.read_tree_contents(id)?;
         for object in &objects {
             let file_name = parent.join(&object.basename);
 
-            match object.r#type {
-                ObjectType::Tree => {
-                    if object_type.is_none() || object_type == Some(&ObjectType::Tree) {
+            match object.kind {
+                ObjectKind::Tree => {
+                    if kind.is_none() || kind == Some(&ObjectKind::Tree) {
                         writeln!(stdout, "tree {}\t{}/", object.id, file_name.display(),)?;
                     }
                     Self::inner_print_tree(
@@ -410,13 +409,13 @@ impl PrintTreeCommand {
                         stdout,
                         &file_name,
                         &object.id,
-                        object_type,
+                        kind,
                         max_depth,
                         depth + 1,
                     )?;
                 }
-                ObjectType::File => {
-                    if object_type.is_none() || object_type == Some(&ObjectType::File) {
+                ObjectKind::File => {
+                    if kind.is_none() || kind == Some(&ObjectKind::File) {
                         writeln!(stdout, "file {}\t{}", object.id, file_name.display())?;
                     }
                 }

@@ -6,7 +6,7 @@ use rayon::prelude::*;
 
 use crate::builder::TargetEntries;
 use crate::progress::BuildProgressBar;
-use crate::{builder, path::RelativePath, Context, Object, ObjectType};
+use crate::{builder, path::RelativePath, Context, Object, ObjectKind};
 
 pub(crate) fn build(
     ctx: &Context,
@@ -17,7 +17,7 @@ pub(crate) fn build(
     let (files, mut dirs) = target_entries
         .files
         .into_iter()
-        .partition::<Vec<_>, _>(|entry| matches!(entry.mode, ObjectType::File));
+        .partition::<Vec<_>, _>(|entry| matches!(entry.mode, ObjectKind::File));
 
     let mut objects_per_dir = files
         .into_par_iter()

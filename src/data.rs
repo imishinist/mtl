@@ -13,27 +13,27 @@ use crate::path::RelativePath;
 use crate::ParseError;
 
 #[derive(Debug, PartialEq, Eq, Clone, ValueEnum, std::hash::Hash)]
-pub enum ObjectType {
+pub enum ObjectKind {
     Tree,
     File,
 }
 
-impl fmt::Display for ObjectType {
+impl fmt::Display for ObjectKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
         match self {
-            ObjectType::Tree => write!(f, "tree"),
-            ObjectType::File => write!(f, "file"),
+            ObjectKind::Tree => write!(f, "tree"),
+            ObjectKind::File => write!(f, "file"),
         }
     }
 }
 
-impl FromStr for ObjectType {
+impl FromStr for ObjectKind {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "tree" => Ok(ObjectType::Tree),
-            "file" => Ok(ObjectType::File),
+            "tree" => Ok(ObjectKind::Tree),
+            "file" => Ok(ObjectKind::File),
             "" => Err(ParseError::EmptyToken),
             s => Err(ParseError::InvalidToken(s.to_string())),
         }
@@ -175,7 +175,7 @@ impl Ord for ObjectRef {
 
 #[derive(Debug, PartialEq, Eq, Clone, std::hash::Hash)]
 pub struct Object {
-    pub r#type: ObjectType,
+    pub kind: ObjectKind,
     pub id: ObjectID,
 
     // only contains basename of file
@@ -183,32 +183,28 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn new<P: Into<PathBuf>>(
-        object_type: ObjectType,
-        object_id: ObjectID,
-        file_name: P,
-    ) -> Self {
+    pub fn new<P: Into<PathBuf>>(kind: ObjectKind, id: ObjectID, file_name: P) -> Self {
         Object {
-            r#type: object_type,
-            id: object_id,
+            kind,
+            id,
             basename: RelativePath::from(file_name),
         }
     }
 
     pub fn new_tree<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
-        Object::new(ObjectType::Tree, object_id, file_name.into())
+        Object::new(ObjectKind::Tree, object_id, file_name.into())
     }
 
     pub fn new_file<P: Into<PathBuf>>(object_id: ObjectID, file_name: P) -> Self {
-        Object::new(ObjectType::File, object_id, file_name.into())
+        Object::new(ObjectKind::File, object_id, file_name.into())
     }
 
     pub fn is_tree(&self) -> bool {
-        self.r#type == ObjectType::Tree
+        self.kind == ObjectKind::Tree
     }
 
     pub fn is_file(&self) -> bool {
-        self.r#type == ObjectType::File
+        self.kind == ObjectKind::File
     }
 
     pub fn size(&self) -> usize {
@@ -245,7 +241,7 @@ impl fmt::Display for Object {
         write!(
             f,
             "{}\t{}\t{}",
-            self.r#type,
+            self.kind,
             self.id,
             self.basename.file_name().unwrap_or_default().display()
         )
@@ -255,22 +251,22 @@ impl fmt::Display for Object {
 #[cfg(test)]
 mod tests {
     use crate::hash::Hash;
-    use crate::{Object, ObjectID, ObjectRef, ObjectType};
+    use crate::{Object, ObjectID, ObjectKind, ObjectRef};
     use std::path::PathBuf;
     use std::str::FromStr;
 
     #[test]
-    fn test_object_type_display() {
-        assert_eq!(ObjectType::Tree.to_string(), "tree");
-        assert_eq!(ObjectType::File.to_string(), "file");
+    fn test_object_kind_display() {
+        assert_eq!(ObjectKind::Tree.to_string(), "tree");
+        assert_eq!(ObjectKind::File.to_string(), "file");
     }
 
     #[test]
-    fn test_object_type_from_str() {
-        assert_eq!(ObjectType::from_str("tree").unwrap(), ObjectType::Tree);
-        assert_eq!(ObjectType::from_str("file").unwrap(), ObjectType::File);
-        assert!(ObjectType::from_str("").is_err());
-        assert!(ObjectType::from_str("invalid").is_err());
+    fn test_object_kind_from_str() {
+        assert_eq!(ObjectKind::from_str("tree").unwrap(), ObjectKind::Tree);
+        assert_eq!(ObjectKind::from_str("file").unwrap(), ObjectKind::File);
+        assert!(ObjectKind::from_str("").is_err());
+        assert!(ObjectKind::from_str("invalid").is_err());
     }
 
     #[test]
@@ -329,10 +325,10 @@ mod tests {
 
         let object_id = ObjectID::from_hex("d447b1ea40e6988b").unwrap();
         let mut objects = vec![
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("c")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("d")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("a")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("b")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("c")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("d")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("a")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("b")),
         ];
         let mut compare_target = objects.clone();
 
@@ -354,11 +350,11 @@ mod tests {
     fn test_object_size() {
         let object_id = ObjectID::from_hex("d447b1ea40e6988b").unwrap();
         let objects = vec![
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("a")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("aa")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("aあ")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("あ")),
-            Object::new(ObjectType::File, object_id.clone(), PathBuf::from("ああ")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("a")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("aa")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("aあ")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("あ")),
+            Object::new(ObjectKind::File, object_id.clone(), PathBuf::from("ああ")),
         ];
         assert_eq!(objects[0].size(), 24);
         assert_eq!(objects[1].size(), 25);

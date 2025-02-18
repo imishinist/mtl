@@ -378,11 +378,11 @@ impl Context {
         let mut objects = Vec::new();
         for line in tree_contents.lines() {
             let mut parts = line.split('\t');
-            let object_type: ObjectType = parts.next().ok_or(ParseError::EmptyToken)?.parse()?;
-            let object_id: ObjectID = parts.next().ok_or(ParseError::EmptyToken)?.parse()?;
+            let kind: ObjectKind = parts.next().ok_or(ParseError::EmptyToken)?.parse()?;
+            let id: ObjectID = parts.next().ok_or(ParseError::EmptyToken)?.parse()?;
             let file_name = PathBuf::from(parts.next().ok_or(ParseError::EmptyToken)?);
 
-            objects.push(Object::new(object_type, object_id, file_name));
+            objects.push(Object::new(kind, id, file_name));
         }
 
         Ok(objects)

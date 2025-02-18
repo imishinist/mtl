@@ -10,7 +10,7 @@ use notify::{Config, Event, EventKind, RecommendedWatcher, Watcher};
 
 use crate::builder::{Builder, FileTargetGenerator, ScanTargetGenerator, TargetGenerator};
 use crate::filter::{Filter, IgnoreFilter, MatchAllFilter, PathFilter};
-use crate::{builder, path::RelativePath, Context, ObjectType};
+use crate::{builder, path::RelativePath, Context, ObjectKind};
 
 #[derive(Args, Debug)]
 pub struct Build {
@@ -190,7 +190,7 @@ impl Watch {
                 }
 
                 let depth = path.depth();
-                let file_entry = builder::FileEntry::new(ObjectType::File, path.clone(), depth);
+                let file_entry = builder::FileEntry::new(ObjectKind::File, path.clone(), depth);
                 let object_id = match builder::hash_file_entry(&ctx, &file_entry) {
                     Ok(object_id) => object_id,
                     Err(e) => {

@@ -15,7 +15,7 @@ use itertools::Itertools;
 use crate::cache::CacheValue;
 use crate::filter::Filter;
 use crate::progress::BuildProgressBar;
-use crate::{path::RelativePath, Context, Object, ObjectID, ObjectType, ReadContentError};
+use crate::{path::RelativePath, Context, Object, ObjectID, ObjectKind, ReadContentError};
 
 pub trait TargetGenerator {
     fn generate(&self, ctx: &Context) -> anyhow::Result<TargetEntries, ReadContentError>;
@@ -51,13 +51,13 @@ impl Builder {
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct FileEntry {
-    pub mode: ObjectType,
+    pub mode: ObjectKind,
     pub path: RelativePath,
     pub depth: usize,
 }
 
 impl FileEntry {
-    pub fn new(mode: ObjectType, path: RelativePath, depth: usize) -> Self {
+    pub fn new(mode: ObjectKind, path: RelativePath, depth: usize) -> Self {
         Self { mode, path, depth }
     }
 }
@@ -158,8 +158,8 @@ impl TargetEntries {
     pub fn push_file_entry(&mut self, entry: FileEntry) {
         self.max_depth = self.max_depth.max(entry.depth);
         match entry.mode {
-            ObjectType::File => self.num_files += 1,
-            ObjectType::Tree => self.num_dirs += 1,
+            ObjectKind::File => self.num_files += 1,
+            ObjectKind::Tree => self.num_dirs += 1,
         }
         self.files.push(entry);
     }
@@ -234,7 +234,7 @@ impl TargetGenerator for ScanTargetGenerator {
 
         let output_thread = std::thread::spawn(move || {
             let mut entries = TargetEntries::new();
-            entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0));
+            entries.push_file_entry(FileEntry::new(ObjectKind::Tree, RelativePath::Root, 0));
             for entry in rx {
                 entries.push_file_entry(entry);
             }
@@ -290,14 +290,14 @@ impl TargetGenerator for ScanTargetGenerator {
                     return WalkState::Continue;
                 }
 
-                let object_type = if ft.is_dir() {
-                    ObjectType::Tree
+                let object_kind = if ft.is_dir() {
+                    ObjectKind::Tree
                 } else {
-                    ObjectType::File
+                    ObjectKind::File
                 };
 
                 tx.send(FileEntry::new(
-                    object_type,
+                    object_kind,
                     RelativePath::from(path),
                     entry.depth(),
                 ))
@@ -352,14 +352,14 @@ impl TargetGenerator for FileTargetGenerator {
                 continue;
             }
 
-            let object_type = if is_dir {
-                ObjectType::Tree
+            let object_kind = if is_dir {
+                ObjectKind::Tree
             } else {
-                ObjectType::File
+                ObjectKind::File
             };
-            entries.push_file_entry(FileEntry::new(object_type, relative_path, depth));
+            entries.push_file_entry(FileEntry::new(object_kind, relative_path, depth));
         }
-        entries.push_file_entry(FileEntry::new(ObjectType::Tree, RelativePath::Root, 0));
+        entries.push_file_entry(FileEntry::new(ObjectKind::Tree, RelativePath::Root, 0));
         Ok(entries)
     }
 }
