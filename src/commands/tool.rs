@@ -9,9 +9,6 @@ use indicatif::ProgressBar;
 use rand::prelude::Distribution;
 use rand_distr::Normal;
 use rayon::prelude::*;
-use redb::ReadableTable;
-
-use crate::{Context, ObjectID, PACKED_OBJECTS_TABLE};
 
 #[derive(Debug, Args)]
 pub struct Hash {
@@ -119,41 +116,5 @@ impl Generate {
         (0..need_bytes)
             .map(|_| rand::random::<u8>())
             .collect::<Vec<_>>()
-    }
-}
-
-#[derive(Debug, Args)]
-pub struct ReDB {
-    /// The object to look up
-    key: Option<ObjectID>,
-}
-
-impl ReDB {
-    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
-        let Some(db) = ctx.packed_db else {
-            println!("no packed db");
-            return Ok(());
-        };
-
-        let read_txn = db.begin_read()?;
-        let Some(object_id) = &self.key else {
-            let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
-            for range in table.iter()? {
-                let (object_id, _) = range?;
-                println!("{}", object_id.value());
-            }
-            return Ok(());
-        };
-
-        let table = read_txn.open_table(PACKED_OBJECTS_TABLE)?;
-        match table.get(object_id)? {
-            Some(val) => {
-                let content = val.value();
-                let s = String::from_utf8_lossy(&content);
-                println!("{}", s);
-            }
-            None => println!("not found"),
-        };
-        Ok(())
     }
 }

@@ -513,17 +513,13 @@ pub enum ToolCommands {
 
     /// calculate xxHash
     Hash(tool::Hash),
-
-    /// redb commands
-    Redb(tool::ReDB),
 }
 
 impl ToolCommands {
-    pub fn run(&self, ctx: Context) -> anyhow::Result<()> {
+    pub fn run(&self, _ctx: Context) -> anyhow::Result<()> {
         match self {
             ToolCommands::Generate(cmd) => cmd.run(),
             ToolCommands::Hash(cmd) => cmd.run(),
-            ToolCommands::Redb(cmd) => cmd.run(ctx),
         }
     }
 }
